@@ -3,9 +3,10 @@
 
 // std
 #include <string>
+// opencv2
+#include "opencv2/opencv.hpp"
 
-namespace sfvml   {
-namespace utility {
+namespace sfvml {
 
 
 // Extact all frames from the video, 
@@ -14,8 +15,11 @@ namespace utility {
 // <- Returns the number of extracted frames
 uint32_t extractFrameFromMp4(const std::string& videoFilename);
 
+// Remove (= set to black) the grey pixels, where we expect
+// the background to be "The grid"
+// frame -> Frame read through cv to be cleaned
+void removeGrey(cv::Mat *frame);
 
-} // utility::
 } // sfvml::
 
 #endif

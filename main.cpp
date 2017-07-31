@@ -1,10 +1,19 @@
 // sfvml
 #include "sfvml_frameextractor.h"
+//std
+#include <string>
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
+#include <cmath>
+
 
 int main(int argc, char ** argv)
 {
     using namespace sfvml;
+    std::string videoFilename(argv[1]);
+    
+    (void)extractFrameFromMp4(videoFilename);
 
-    utility::extractFrameFromMp4(argv[1]);
     return 0;
 }
