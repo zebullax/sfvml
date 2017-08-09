@@ -14,7 +14,8 @@ struct FrameExtractor
                    bool saveToFolder = false);
 
     // MODIFICATORS
-    
+    void discardNextNFrames(size_t nbToSkip);
+ 
 	FrameExtractor& operator>>(cv::Mat& frame);
 
     // ACCESSORS

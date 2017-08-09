@@ -10,7 +10,7 @@
 namespace sfvml   {
 
 	FrameExtractor::FrameExtractor(const std::string& videoFilename,
-								    bool saveToFolder) :
+								   bool saveToFolder) :
 									d_nbOfFrames{},
 									d_currentFrame{},
 									d_fps{},
@@ -30,14 +30,22 @@ namespace sfvml   {
 
 		std::replace(d_outFilePrefix.begin(), d_outFilePrefix.end(), '.', '_');
 
-		std::cout << "Video properties: " << d_videoWidth << '*' << d_videoHeight << '*' << d_fps << ":" << d_matFormat << std::endl;
+		std::cout << "Video properties: " << d_videoWidth << '*' 
+                  << d_videoHeight << '*' << d_fps << ":" << d_matFormat << std::endl;
 	}
+
+    void FrameExtractor::discardNextNFrames(size_t nbToSkip)
+    {
+        cv::Mat scratch;
+        for (size_t i = 0; i != nbToSkip; ++i) { 
+            d_vid.read(scratch);
+            d_currentFrame++;
+        }
+    }
 
 	FrameExtractor& FrameExtractor::operator>>(cv::Mat& extractedFrame)
 	{
 		d_vid.read(extractedFrame);		
-		removeGrey(&extractedFrame);
-		
 		if (d_saveToFolder)
 		{
 			std::ostringstream extractedFrameFilename;
@@ -45,8 +53,10 @@ namespace sfvml   {
 			extractedFrameFilename << property::k_frameOutputFolder
 				<< d_outFilePrefix
 				<< std::setw(10) << std::setfill('0')
-				<< d_currentFrame << ".jpg";			
+				<< d_currentFrame << "_original.jpg";
+            cv::imwrite(extractedFrameFilename.str(), extractedFrame);
 		}
+		removeGrey(&extractedFrame);
 		d_currentFrame++;
 		return *this;		
 	}
