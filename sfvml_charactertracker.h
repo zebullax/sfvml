@@ -24,14 +24,14 @@ Position getCroppedArea(const cv::Mat& frame,
 {
    
     // Translate from center of character to top left corner
-    int32_t prevX = prevPosition.x - character.width / 2;
-    int32_t prevY = prevPosition.y - character.height / 2;
+    int32_t prevX = prevPosition.x - static_cast<int32_t>(character.width / 2);
+    int32_t prevY = prevPosition.y - static_cast<int32_t>(character.height / 2);
 
 
-    bool goRight = updateDirection & 1;
-    bool goLeft  = updateDirection & 2;
-    bool goUp    = updateDirection & 4;
-    bool goDown  = updateDirection & 8;
+    bool goRight = (updateDirection & 1) != 0;
+    bool goLeft  = (updateDirection & 2) != 0;
+    bool goUp    = (updateDirection & 4) != 0;
+    bool goDown  = (updateDirection & 8) != 0;
 
     // TODO change hardcoded 1200 * 720
     int32_t newX = prevX + (goLeft  ? -character.velocity :
@@ -43,9 +43,9 @@ Position getCroppedArea(const cv::Mat& frame,
 
     // clip to min max
     newX = std::max<int32_t>(newX, 0);
-    newX = std::min<int32_t>(newX, 1200 - character.width);
+    newX = std::min<int32_t>(newX, static_cast<int32_t>(1200 - character.width));
     newY = std::max<int32_t>(newY, 0);
-    newY = std::min<int32_t>(newY, 720 - character.height);
+    newY = std::min<int32_t>(newY, static_cast<int32_t>(720 - character.height));
     
     std::cout << updateDirection << ": X " << prevX << "->" << newX 
               << ", Y " << prevY << "->" << newY << std::endl;
@@ -85,8 +85,8 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     std::ostringstream extractedFrameFilename(outFilePrefix);
 
 	// Those will hold the square supposedly framing the characters
-    cv::Mat firstCharacterVector;
-	cv::Mat secondCharacterVector;
+    cv::Mat firstCharacterCrop;
+	cv::Mat secondCharacterCrop;
 
 	cv::Mat extractedFrame;
     
@@ -104,12 +104,23 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                                                     secondCharacter.p2StartY 
                                                         + secondCharacter.height / 2};
 	getStartingCharVectors(extractedFrame,
-	                       &firstCharacterVector,
+	                       &firstCharacterCrop,
 	                       firstCharacter,
-	                       &secondCharacterVector,
+	                       &secondCharacterCrop,
 	                       secondCharacter);
-    
+
     // TODO Add progress status
+    std::vector<Direction> updateDirections { 
+        k_RIGHT,
+        k_LEFT,
+        k_UP,
+        k_DOWN,
+        k_UPLEFT,
+        k_UPRIGHT,
+        k_DOWNRIGHT,
+        k_DOWNLEFT
+    };
+
     while (!frameExtractor.isLastFrame())
     {
         frameExtractor >> extractedFrame;
@@ -118,155 +129,43 @@ void getCharacterTrajectories(const std::string&     videoFilename,
 
         // TODO character 2 ?!
 
-        // Check surrounding crops
-        // TODO Factor out
-        cv::Mat identUpdate;
-        cv::Mat rightUpdate;
-        cv::Mat leftUpdate;
-        cv::Mat upUpdate;
-        cv::Mat downUpdate; 
-        cv::Mat upRightUpdate;
-        cv::Mat upLeftUpdate;
-        cv::Mat downRightUpdate;
-        cv::Mat downLeftUpdate;
-
-        Position identPosition = getCroppedArea(extractedFrame,
-                                 (*trajectoryCharacter1)[previousTrackedFrame],
-                                 Direction::k_IDENT,
-                                 firstCharacter,
-                                 &identUpdate);
-
-        Position rightPosition = getCroppedArea(extractedFrame,
-                       (*trajectoryCharacter1)[previousTrackedFrame],
-                       Direction::k_RIGHT,
-                       firstCharacter,
-                       &rightUpdate);
-
-        Position leftPosition = getCroppedArea(extractedFrame,
-            (*trajectoryCharacter1)[previousTrackedFrame],
-            Direction::k_LEFT,
-            firstCharacter,
-            &leftUpdate);
-
-        Position downPosition = getCroppedArea(extractedFrame,
-            (*trajectoryCharacter1)[previousTrackedFrame],
-            Direction::k_DOWN,
-            firstCharacter,
-            &downUpdate);
-
-        Position upPosition = getCroppedArea(extractedFrame,
-            (*trajectoryCharacter1)[previousTrackedFrame],
-            Direction::k_UP,
-            firstCharacter,
-            &upUpdate);
-        
-        Position upRightPosition = getCroppedArea(extractedFrame,
-            (*trajectoryCharacter1)[previousTrackedFrame],
-            Direction::k_UPRIGHT,
-            firstCharacter,
-            &upRightUpdate);
-        
-        Position upLeftPosition = getCroppedArea(extractedFrame,
-            (*trajectoryCharacter1)[previousTrackedFrame],
-            Direction::k_UPLEFT,
-            firstCharacter,
-            &upLeftUpdate);
-        
-        Position downLeftPosition = getCroppedArea(extractedFrame,
-            (*trajectoryCharacter1)[previousTrackedFrame],
-            Direction::k_DOWNLEFT,
-            firstCharacter,
-            &downLeftUpdate);
-        
-        Position downRightPosition = getCroppedArea(extractedFrame,
-            (*trajectoryCharacter1)[previousTrackedFrame],
-            Direction::k_DOWNRIGHT,
-            firstCharacter,
-            &downRightUpdate);
-        
-        // Update with lowest distance
-        double identDistance = cv::norm(identUpdate, firstCharacterVector);
-        double rightDistance = cv::norm(rightUpdate, firstCharacterVector);
-        double leftDistance  = cv::norm(leftUpdate, firstCharacterVector);
-        double upDistance    = cv::norm(upUpdate, firstCharacterVector);
-        double downDistance  = cv::norm(downUpdate, firstCharacterVector); 
-        double upRightDistance = cv::norm(upRightUpdate, firstCharacterVector);
-        double upLeftDistance  = cv::norm(upLeftUpdate, firstCharacterVector);
-        double downLeftDistance    = cv::norm(downLeftUpdate, firstCharacterVector);
-        double downRightDistance  = cv::norm(downRightUpdate, firstCharacterVector);
-
-        double minDistance = identDistance;
-        std::cout << "Picking no move\n";
-        cv::Mat* closestUpdate = &identUpdate;
-        (*trajectoryCharacter1)[lastExtractedFrame] = identPosition;
-
-        if (rightDistance < minDistance)
+        // Check surrounding crops and pick the minimal distance
+        cv::Mat minCrop;
+        Position minPosition = getCroppedArea(extractedFrame,
+                                              (*trajectoryCharacter1)[previousTrackedFrame],
+                                              Direction::k_IDENT,
+                                              firstCharacter,
+                                              &minCrop);
+        std::cout << "Picking " << Direction::k_IDENT << " move from " << (*trajectoryCharacter1)[previousTrackedFrame] << " to " << minPosition << " \n";
+        double minDistance = cv::norm(minCrop, firstCharacterCrop);
+        for(auto&& direction : updateDirections)
         {
-            std::cout << "Picking right move\n" ;
-            minDistance = rightDistance;
-            closestUpdate = &rightUpdate;
-            (*trajectoryCharacter1)[lastExtractedFrame] = rightPosition;
-        }
-        if (leftDistance < minDistance)
-        {
-            std::cout << "Picking left move\n" ;
-            minDistance = leftDistance;
-            closestUpdate = &leftUpdate;
-            (*trajectoryCharacter1)[lastExtractedFrame] = leftPosition;
-        }
-        if (upDistance < minDistance)
-        {
-            std::cout << "Picking up move\n" ;
-            minDistance = upDistance;
-            closestUpdate = &upUpdate;
-            (*trajectoryCharacter1)[lastExtractedFrame] = upPosition;
-        }
-        if (downDistance < minDistance)
-        {
-            std::cout << "Picking down move\n" ;
-            minDistance = downDistance;
-            closestUpdate = &downUpdate;
-            (*trajectoryCharacter1)[lastExtractedFrame] = downPosition;
-        }
-        
-        if (downLeftDistance < minDistance)
-        {
-            std::cout << "Picking downLeft move\n" ;
-            minDistance = downLeftDistance;
-            closestUpdate = &downLeftUpdate;
-            (*trajectoryCharacter1)[lastExtractedFrame] = downLeftPosition;
-        }
-        if (downRightDistance < minDistance)
-        {
-            std::cout << "Picking downRight move\n" ;
-            minDistance = downRightDistance;
-            closestUpdate = &downRightUpdate;
-            (*trajectoryCharacter1)[lastExtractedFrame] = downRightPosition;
-        }
-        if (upLeftDistance < minDistance)
-        {
-            std::cout << "Picking upLeft move\n" ;
-            minDistance = upLeftDistance;
-            closestUpdate = &upLeftUpdate;
-            (*trajectoryCharacter1)[lastExtractedFrame] = upLeftPosition;
-        }
-        if (downRightDistance < minDistance)
-        {
-            std::cout << "Picking downRight move\n" ;
-            minDistance = downRightDistance;
-            closestUpdate = &downRightUpdate;
-            (*trajectoryCharacter1)[lastExtractedFrame] = downRightPosition;
+            cv::Mat candidateCrop;
+            Position candidatePosition = getCroppedArea(extractedFrame,
+                                                        (*trajectoryCharacter1)[previousTrackedFrame],
+                                                        direction,
+                                                        firstCharacter,
+                                                        &candidateCrop);
+            double candidateDistance = cv::norm(candidateCrop, firstCharacterCrop);
+            if (candidateDistance < minDistance)
+            {
+                std::cout << "Picking " << direction << " move from " << (*trajectoryCharacter1)[previousTrackedFrame] << " to " << minPosition << " \n";
+                minDistance = candidateDistance;
+                candidateCrop.copyTo(minCrop);
+                minPosition = candidatePosition;
+            }            
         }
 
-        closestUpdate->copyTo(firstCharacterVector);
+        (*trajectoryCharacter1)[lastExtractedFrame] = minPosition;
+        minCrop.copyTo(firstCharacterCrop);
         extractedFrameFilename << property::k_frameOutputFolder
                                << outFilePrefix
                                << std::setw(10) << std::setfill('0')
                                << lastExtractedFrame << ".jpg";
         previousTrackedFrame = lastExtractedFrame;
-        firstCharacterVector.resize(firstCharacter.height);
-        cv::imwrite(extractedFrameFilename.str(), firstCharacterVector);
-        firstCharacterVector.resize(firstCharacter.height * firstCharacter.width);
+        firstCharacterCrop.resize(firstCharacter.height);
+        cv::imwrite(extractedFrameFilename.str(), firstCharacterCrop);
+        firstCharacterCrop.resize(firstCharacter.height * firstCharacter.width);
         extractedFrameFilename.str("");
         // TODO interpolate in between
         

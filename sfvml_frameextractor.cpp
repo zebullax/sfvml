@@ -26,7 +26,7 @@ namespace sfvml   {
 		d_fps			= static_cast<size_t>(d_vid.get(CV_CAP_PROP_FPS));
 		d_videoWidth	= static_cast<size_t>(d_vid.get(CV_CAP_PROP_FRAME_WIDTH));
 		d_videoHeight	= static_cast<size_t>(d_vid.get(CV_CAP_PROP_FRAME_HEIGHT));
-		d_matFormat		= d_vid.get(CV_CAP_PROP_FORMAT);
+		d_matFormat		= static_cast<int>(d_vid.get(CV_CAP_PROP_FORMAT));
 
 		std::replace(d_outFilePrefix.begin(), d_outFilePrefix.end(), '.', '_');
 

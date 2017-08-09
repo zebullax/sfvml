@@ -13,7 +13,7 @@ static const double k_greyThreshold = 30.0;
 // Step size used when tracking characters, we dont track 
 // every frame, buy every 'trackStep'-th frame and 
 // interpolate in between
-static const size_t k_trackStep = 10;
+static const size_t k_trackStep = 5;
 
 } // property::
 } // sfvml::
