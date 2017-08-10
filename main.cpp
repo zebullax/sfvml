@@ -3,6 +3,7 @@
 #include "sfvml_type.h"
 #include "sfvml_charactertraits.h"
 #include "sfvml_charactertracker.h"
+#include "sfvml_frametransformer.h"
 
 int main(int argc, char ** argv)
 {
@@ -13,11 +14,20 @@ int main(int argc, char ** argv)
 	CharacterTrait<CharacterName::Urien>	urien;
 	CharacterTrait<CharacterName::Laura>	laura;
 
-	getCharacterTrajectories(videoFilename, 
+    auto l2norm = [] (const cv::Mat& a, const cv::Mat& b) {
+        return cv::norm(a, b);
+    };
+
+    auto histCmp = [] (const cv::Mat& a, const cv::Mat& b) {
+        return sfvml::compareHistogram(a, b);
+    };
+
+    getCharacterTrajectories(videoFilename, 
                              &urienTrajectory, 
                              urien, 
                              &lauraTrajectory, 
-                             laura);
+                             laura,
+                             l2norm);
 
     return 0;
 }

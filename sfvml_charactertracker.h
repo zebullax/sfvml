@@ -6,6 +6,7 @@
 #include "sfvml_property.h"
 #include "sfvml_type.h"
 #include "sfvml_frameextractor.h"
+#include "sfvml_frametransformer.h"
 // std
 #include <vector>
 #include <cmath>
@@ -61,12 +62,14 @@ Position getCroppedArea(const cv::Mat& frame,
 
 // That's where the magic happens... 
 template <typename FirstCharacter,
-          typename SecondCharacter>
+          typename SecondCharacter,
+          typename Measure>
 void getCharacterTrajectories(const std::string&     videoFilename,
                               std::vector<Position> *trajectoryCharacter1,
                               FirstCharacter         firstCharacter,
                               std::vector<Position> *trajectoryCharacter2,
-                              SecondCharacter        secondCharacter)
+                              SecondCharacter        secondCharacter,
+                              Measure                norm)
 {
 	FrameExtractor frameExtractor(videoFilename, true);
     if (!frameExtractor) {
@@ -107,6 +110,7 @@ void getCharacterTrajectories(const std::string&     videoFilename,
 	                       firstCharacter,
 	                       &secondCharacterCrop,
 	                       secondCharacter);
+    
     FrameExtractor::removeGrey(&firstCharacterCrop);
     FrameExtractor::removeGrey(&secondCharacterCrop);
     
@@ -139,7 +143,7 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                                               firstCharacter,
                                               &minCrop);
         std::cout << "Picking " << Direction::k_IDENT << " move from " << (*trajectoryCharacter1)[previousTrackedFrame] << " to " << minPosition << " \n";
-        double minDistance = cv::norm(minCrop, firstCharacterCrop);
+        double minDistance = norm(minCrop, firstCharacterCrop);
         for(auto&& direction : updateDirections)
         {
             cv::Mat candidateCrop;
@@ -148,13 +152,13 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                                                         direction,
                                                         firstCharacter,
                                                         &candidateCrop);
-            double candidateDistance = cv::norm(candidateCrop, firstCharacterCrop);
+            double candidateDistance = norm(candidateCrop, firstCharacterCrop);
             if (candidateDistance < minDistance)
             {
-                std::cout << "Picking " << direction << " move from " << (*trajectoryCharacter1)[previousTrackedFrame] << " to " << minPosition << " \n";
                 minDistance = candidateDistance;
                 candidateCrop.copyTo(minCrop);
                 minPosition = candidatePosition;
+                std::cout << "Picking " << direction << " move from " << (*trajectoryCharacter1)[previousTrackedFrame] << " to " << minPosition << " \n";
             }            
         }
 
