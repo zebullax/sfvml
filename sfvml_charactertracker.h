@@ -88,9 +88,8 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     cv::Mat firstCharacterCrop;
 	cv::Mat secondCharacterCrop;
 
-	cv::Mat extractedFrame;
-    
     // Prime the pump, starting position is fixed 
+	cv::Mat extractedFrame;
     size_t lastExtractedFrame  = 0;
     size_t previousTrackedFrame = 0;
 	frameExtractor >> extractedFrame;
@@ -108,7 +107,9 @@ void getCharacterTrajectories(const std::string&     videoFilename,
 	                       firstCharacter,
 	                       &secondCharacterCrop,
 	                       secondCharacter);
-
+    FrameExtractor::removeGrey(&firstCharacterCrop);
+    FrameExtractor::removeGrey(&secondCharacterCrop);
+    
     // TODO Add progress status
     std::vector<Direction> updateDirections { 
         k_RIGHT,
@@ -124,6 +125,7 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     while (!frameExtractor.isLastFrame())
     {
         frameExtractor >> extractedFrame;
+        FrameExtractor::removeGrey(&extractedFrame);
         lastExtractedFrame = frameExtractor.currentFrame();
         frameExtractor.discardNextNFrames(property::k_trackStep);
 

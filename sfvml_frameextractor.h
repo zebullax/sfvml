@@ -28,12 +28,12 @@ struct FrameExtractor
     // CONVERSION
     operator bool() const { return d_vid.isOpened(); }
 
-private:
-
 	// Remove (= set to black) the grey pixels, where we expect
 	// the background to be "The grid"
 	// frame -> Frame read through cv to be cleaned
-	void removeGrey(cv::Mat *frame) const;
+	static void removeGrey(cv::Mat *frame);
+
+private:
 
 	size_t				d_nbOfFrames;
 	size_t				d_currentFrame;

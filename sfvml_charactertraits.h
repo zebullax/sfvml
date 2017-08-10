@@ -25,7 +25,7 @@ struct CharacterTrait<CharacterName::Urien, Width, Height>
 	double      p1StartY = (190 / 720.0) * Height;
     double      width    = (300 / 1280.0) * Width;
 	double      height   = (510 / 720.0) * Height;
-    uint8_t     velocity = 80;
+    uint8_t     velocity = 150;
     std::string name     = "Urien";
 };
 

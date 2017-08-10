@@ -56,12 +56,11 @@ namespace sfvml   {
 				<< d_currentFrame << "_original.jpg";
             cv::imwrite(extractedFrameFilename.str(), extractedFrame);
 		}
-		removeGrey(&extractedFrame);
 		d_currentFrame++;
 		return *this;		
 	}
 
-	void FrameExtractor::removeGrey(cv::Mat* frame) const
+	void FrameExtractor::removeGrey(cv::Mat* frame) 
 	{
 		frame->forEach<Pixel>([](Pixel &p, const int * position) -> void
 		{
