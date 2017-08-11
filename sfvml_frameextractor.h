@@ -6,7 +6,7 @@
 // opencv2
 #include "opencv2/opencv.hpp"
 
-namespace sfvml {
+namespace Sfvml {
 
 struct FrameExtractor
 {
@@ -22,16 +22,11 @@ struct FrameExtractor
 
 	int    matFormat() const { return d_matFormat; } 
     size_t currentFrame() const { return d_currentFrame; } 
-    bool   isLastFrame() const { return d_currentFrame == d_nbOfFrames; } 
+    bool   isLastFrame() const { return d_currentFrame + 1== d_nbOfFrames; } 
     size_t nbOfFrames() const { return d_nbOfFrames; }
 
     // CONVERSION
     operator bool() const { return d_vid.isOpened(); }
-
-	// Remove (= set to black) the grey pixels, where we expect
-	// the background to be "The grid"
-	// frame -> Frame read through cv to be cleaned
-	static void removeGrey(cv::Mat *frame);
 
 private:
 
@@ -46,6 +41,6 @@ private:
 	cv::VideoCapture	d_vid;
 	bool				d_saveToFolder;
 };
-} // sfvml::
+} // Sfvml::
 
 #endif

@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <string>
 
-namespace sfvml {
+namespace Sfvml {
 
 enum class CharacterName {
     Urien,
@@ -25,7 +25,6 @@ struct CharacterTrait<CharacterName::Urien, Width, Height>
 	double      p1StartY = (190 / 720.0) * Height;
     double      width    = (300 / 1280.0) * Width;
 	double      height   = (510 / 720.0) * Height;
-    uint16_t    velocity = 300;
     std::string name     = "Urien";
 };
 
@@ -36,7 +35,6 @@ struct CharacterTrait<CharacterName::Laura, Width, Height>
     double      p2StartY = (250 / 720.0) * Height;
     double      width    = (290 / 1280.0) * Width;
 	double      height   = (440 / 720.0) * Height;
-    uint16_t     velocity = 30;
     std::string name     = "Laura";
 };
 

@@ -7,7 +7,7 @@
 
 int main(int argc, char ** argv)
 {
-    using namespace sfvml;
+    using namespace Sfvml;
     std::string								videoFilename(argv[1]);
 	std::vector<Position>					urienTrajectory;
 	std::vector<Position>					lauraTrajectory;
@@ -19,7 +19,7 @@ int main(int argc, char ** argv)
     };
 
     auto histCmp = [] (const cv::Mat& a, const cv::Mat& b) {
-        return sfvml::compareHistogram(a, b);
+        return Sfvml::FrameTransformer::compareHistogram(a, b);
     };
 
     getCharacterTrajectories(videoFilename, 

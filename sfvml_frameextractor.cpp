@@ -7,7 +7,7 @@
 #include <sstream>
 #include <cmath>
 
-namespace sfvml   {
+namespace Sfvml   {
 
 	FrameExtractor::FrameExtractor(const std::string& videoFilename,
 								   bool saveToFolder) :
@@ -60,19 +60,4 @@ namespace sfvml   {
 		return *this;		
 	}
 
-	void FrameExtractor::removeGrey(cv::Mat* frame) 
-	{
-		frame->forEach<Pixel>([](Pixel &p, const int * position) -> void
-		{
-			// 90 or 140 are the main grey in the background
-			if (std::sqrt(std::pow((p.x - 140), 2) + std::pow((p.y - 140), 2) + std::pow((p.y - 140), 2))  < property::k_greyThreshold
-				|| std::sqrt(std::pow((p.x - 90), 2) + std::pow((p.y - 90), 2) + std::pow((p.y - 90), 2)) < property::k_greyThreshold)
-			{
-				p.x = 0;
-				p.y = 0;
-				p.z = 0;
-			}
-
-		});
-	}
-} // sfvml::
+} // Sfvml::

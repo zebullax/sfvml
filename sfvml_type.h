@@ -6,10 +6,9 @@
 // std
 #include <ostream>
 
-namespace sfvml {
+namespace Sfvml {
 
-using Pixel = cv::Point3_<uint8_t>;
-
+// FIXME should be unsigned 
 struct Position { double x; 
                   double y; };
 
@@ -44,11 +43,11 @@ inline std::ostream& operator<<(std::ostream& os, const Direction& direction)
            direction == Direction::k_UPLEFT    ? "UpLeft"    :
            direction == Direction::k_UPRIGHT   ? "UpRight"   :
            direction == Direction::k_DOWNRIGHT ? "DownRight" :
-                                                "DownLeft"  );
+                                                 "DownLeft"  );
     return os;
 }
 
 
-} // sfvml::
+} // Sfvml::
 
 #endif
