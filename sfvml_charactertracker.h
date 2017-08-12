@@ -22,7 +22,8 @@ Position getCroppedArea(const cv::Mat& frame,
                         const Position& prevPosition,
                         const Direction& updateDirection,
                         const Character& character,
-                        cv::Mat* croppedROI)
+                        cv::Mat* croppedROI,
+                        double coolingRatio = 1.0)
 {
    
     // Translate from center of character to top left corner
@@ -34,8 +35,8 @@ Position getCroppedArea(const cv::Mat& frame,
     bool goUp    = (updateDirection & 4) != 0;
     bool goDown  = (updateDirection & 8) != 0;
 
-    size_t offsetH = (goRight || goLeft) ? character.width / 2 : 0;
-    size_t offsetV = (goUp || goDown) ? character.height / 2 : 0;
+    size_t offsetH = coolingRatio * ((goRight || goLeft) ? character.width / 2 : 0);
+    size_t offsetV = coolingRatio * ((goUp || goDown) ? character.height / 2 : 0);
 
     // TODO change hardcoded 1200 * 720
     int32_t newX = prevX + (goLeft  ? -offsetH :
@@ -63,13 +64,95 @@ Position getCroppedArea(const cv::Mat& frame,
              static_cast<double>(newY + character.height / 2) };
 }
 
+template<typename Character>
+Position simulatedAnnealingSearch(const cv::Mat&    frame,
+                                  const cv::Mat&    refCharacterCrop,
+                                  const Position&   lastPosition,
+                                  const Character&  character,
+                                  cv::Mat          *nextCharacterCrop,
+                                  cv::Mat          *nextSortedCharacterCrop)
+{
+
+    static std::vector<Direction> updateDirections {
+        k_IDENT,
+        k_RIGHT,
+        k_LEFT,
+        k_UP,
+        k_DOWN,
+        k_UPLEFT,
+        k_UPRIGHT,
+        k_DOWNRIGHT,
+        k_DOWNLEFT
+    };
+    
+    // Here 'local' refer to minimum as they are found in an iteration of 
+    // the search, while 'global' is the overall minimum
+    // nextGlobal is used to track the new global min when exploring locally
+   
+    cv::Mat globalCrop;
+    cv::Mat globalTransformedCrop;
+    Position globalPosition = lastPosition;
+    double globalDistance = std::numeric_limits<double>::max();
+    double descentStep;
+
+    do
+    {
+        double coolingFactor = 1.0;
+        cv::Mat localCrop;
+        std::cout << "Entering local search with global min distance " << globalDistance
+                  << " and global min position " << globalPosition << std::endl;
+        Position nextGlobalPosition;
+        double nextGlobalDistance = globalDistance;
+        for(auto&& direction : updateDirections)
+        {
+            cv::Mat localCrop;
+            Position localPosition = getCroppedArea(frame,
+                                                    globalPosition,
+                                                    direction,
+                                                    character,
+                                                    &localCrop);
+            cv::Mat localTransformedCrop;
+            localCrop.copyTo(localTransformedCrop);
+            FrameTransformer::removeGreyPixels(&localTransformedCrop);
+            FrameTransformer::sortFramePixels(&localTransformedCrop); 
+            double localDistance = norm(localTransformedCrop, refCharacterCrop);
+            std::cout << "Local distance to " << direction << " " << localDistance << '\n'; 
+            if (localDistance < nextGlobalDistance)
+            {
+                nextGlobalDistance = localDistance;
+                nextGlobalPosition = localPosition;
+                localCrop.copyTo(globalCrop); // FIXME straigth to nextCharacterCrop ?
+                localTransformedCrop.copyTo(globalTransformedCrop);
+                std::cout << "Picking " << direction << " move from " 
+                          << globalPosition << " to " << localPosition 
+                          << " with local distance " << localDistance << "\n";
+            } 
+        }
+
+        std::cout << "New global min " << nextGlobalDistance << " at position "
+                  << nextGlobalPosition << std::endl;
+        globalPosition = nextGlobalPosition;
+        descentStep = std::abs(nextGlobalDistance - globalDistance);
+        globalDistance = nextGlobalDistance;
+        coolingFactor *= 0.9;
+    } while (descentStep > property::k_descentThreshold);
+    std::cout << "Ending annealing search with position " << globalPosition
+              << " with distance " << globalDistance 
+              << " and descentStep " << descentStep << std::endl;
+
+    globalCrop.copyTo(*nextCharacterCrop);
+    globalTransformedCrop.copyTo(*nextSortedCharacterCrop);
+    return globalPosition;
+}
+
+
 // That's where the magic happens... 
 template <typename FirstCharacter,
           typename SecondCharacter,
           typename Measure>
 void getCharacterTrajectories(const std::string&     videoFilename,
                               std::vector<Position> *trajectoryP1,
-                              FirstCharacter         firstCharacter,
+                              FirstCharacter         characterP1,
                               std::vector<Position> *trajectoryCharacter2,
                               SecondCharacter        secondCharacter,
                               Measure                norm)
@@ -90,7 +173,7 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     std::ostringstream extractedFrameFilename(outFilePrefix);
 
 	// Those will hold the square supposedly framing the characters
-    cv::Mat firstCharacterCrop;
+    cv::Mat characterP1Crop;
 
     // Prime the pump, starting position is fixed 
 	cv::Mat extractedFrame;
@@ -100,86 +183,36 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     frameExtractor.discardNextNFrames(property::k_trackStep);
     
     // Translate from top left corner to center of the character
-    (*trajectoryP1)[currentlyTrackedFrame] = { firstCharacter.p1StartX
-                                                        + firstCharacter.width / 2,
-                                                    firstCharacter.p1StartY 
-                                                        + firstCharacter.height / 2};
+    (*trajectoryP1)[currentlyTrackedFrame] = { characterP1.p1StartX
+                                               + characterP1.width / 2,
+                                               characterP1.p1StartY 
+                                               + characterP1.height / 2};
 	getStartingCharVectors(extractedFrame,
-	                       &firstCharacterCrop,
-	                       firstCharacter);
-    FrameTransformer::removeGreyPixels(&firstCharacterCrop);
-    FrameTransformer::sortFramePixels(&firstCharacterCrop);
-
-    // TODO Add progress status
-    std::vector<Direction> updateDirections { 
-        k_RIGHT,
-        k_LEFT,
-        k_UP,
-        k_DOWN,
-        k_UPLEFT,
-        k_UPRIGHT,
-        k_DOWNRIGHT,
-        k_DOWNLEFT
-    };
-
-    std::array<cv::Mat, 11> originalCrops;
+	                       &characterP1Crop,
+	                       characterP1);
+    FrameTransformer::removeGreyPixels(&characterP1Crop);
+    FrameTransformer::sortFramePixels(&characterP1Crop);
 
     while (!frameExtractor.isLastFrame())
     {
-        std::cout <<"Frame " << currentlyTrackedFrame << std::endl;
-
-        // Check surrounding crops and pick the minimal distance
-        // Prime the pump from identical position
-        cv::Mat minCrop;
-        Direction minDirection = Direction::k_IDENT;
-        Position minPosition = getCroppedArea(extractedFrame,
-                                              (*trajectoryP1)[prevTrackedFrame],
-                                              Direction::k_IDENT,
-                                              firstCharacter,
-                                              &minCrop);
-
-        minCrop.copyTo(originalCrops[Direction::k_IDENT]);
-        FrameTransformer::removeGreyPixels(&minCrop);
-        FrameTransformer::sortFramePixels(&minCrop);
-
-        double minDistance = norm(minCrop, firstCharacterCrop);
-        std::cout << "Picking " << Direction::k_IDENT << " move from " 
-                  << (*trajectoryP1)[prevTrackedFrame] << " to " 
-                  << minPosition << " with distance " << minDistance << "\n";
-        for(auto&& direction : updateDirections)
-        {
-            cv::Mat candidateCrop;
-            Position candidatePosition = getCroppedArea(extractedFrame,
-                                                        (*trajectoryP1)[prevTrackedFrame],
-                                                        direction,
-                                                        firstCharacter,
-                                                        &candidateCrop);
-            candidateCrop.copyTo(originalCrops[direction]);
-            FrameTransformer::removeGreyPixels(&candidateCrop);
-            FrameTransformer::sortFramePixels(&candidateCrop); 
-            double candidateDistance = norm(candidateCrop, minCrop);
-            std::cout << "Distance to " << direction << " " << candidateDistance << '\n'; 
-            if (candidateDistance < minDistance)
-            {
-                minDirection = direction;
-                minDistance = candidateDistance;
-                candidateCrop.copyTo(minCrop);
-                minPosition = candidatePosition;
-                std::cout << "Picking " << direction << " move from " 
-                          << (*trajectoryP1)[prevTrackedFrame] << " to " 
-                          << minPosition << " with distance " << minDistance << "\n";
-            }            
-        }
-
-        (*trajectoryP1)[currentlyTrackedFrame] = minPosition;
+        std::cout << "Frame " << currentlyTrackedFrame << std::endl;
+        cv::Mat nextCrop; 
+        cv::Mat nextSortedCrop; 
+        Position nextPosition = simulatedAnnealingSearch(extractedFrame,
+                                                         characterP1Crop,
+                                                         (*trajectoryP1)[currentlyTrackedFrame],
+                                                         characterP1,
+                                                         &nextCrop,
+                                                         &nextSortedCrop);
+        (*trajectoryP1)[currentlyTrackedFrame] = nextPosition;
         extractedFrameFilename << property::k_frameOutputFolder
                                << outFilePrefix
                                << std::setw(10) << std::setfill('0')
                                << currentlyTrackedFrame << ".jpg";
         prevTrackedFrame = currentlyTrackedFrame;
-        originalCrops[minDirection].reshape(firstCharacter.width, firstCharacter.height);
-        cv::imwrite(extractedFrameFilename.str(), originalCrops[minDirection]);
-        cv::imwrite(extractedFrameFilename.str() + "_sorted.jpg", minCrop);
+        nextCrop.reshape(characterP1.width, characterP1.height);
+        cv::imwrite(extractedFrameFilename.str(), nextCrop);
+        cv::imwrite(extractedFrameFilename.str() + "_sorted.jpg", nextSortedCrop);
         extractedFrameFilename.str("");
         
         // TODO interpolate in between
@@ -188,7 +221,8 @@ void getCharacterTrajectories(const std::string&     videoFilename,
         // current points to one past read, hence - 1 
         currentlyTrackedFrame = frameExtractor.currentFrame() - 1;         
         frameExtractor.discardNextNFrames(property::k_trackStep);
-    }
+        
+   }
 }
 
 

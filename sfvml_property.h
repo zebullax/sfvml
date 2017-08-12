@@ -11,10 +11,12 @@ static const char* k_frameOutputFolder = "outputFrames/";
 static const double k_greyThreshold = 30.0;
 
 // Step size used when tracking characters, we dont track 
-// every frame, buy every 'trackStep'-th frame and 
+// every frame, but every 'trackStep'-th frame and 
 // interpolate in between
 static const size_t k_trackStep = 2;
 
+// Threshold on distance 
+static const double k_descentThreshold = 50.0;
 } // property::
 } // Sfvml::
 
