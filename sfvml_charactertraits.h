@@ -26,6 +26,8 @@ struct CharacterTrait<CharacterName::Urien, Width, Height>
     double      width    = (300 / 1280.0) * Width;
 	double      height   = (510 / 720.0) * Height;
     std::string name     = "Urien";
+    // FIXME the threshold should probably normalized by nb of pixels
+    double      trackThreshold = 45000.0;
 };
 
 template<size_t Width, size_t Height> 

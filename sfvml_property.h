@@ -15,8 +15,9 @@ static const double k_greyThreshold = 30.0;
 // interpolate in between
 static const size_t k_trackStep = 2;
 
-// Threshold on distance 
-static const double k_descentThreshold = 50.0;
+// Upper limit on the number of searches done locally 
+static const size_t k_maxSearchIter = 3;
+
 } // property::
 } // Sfvml::
 

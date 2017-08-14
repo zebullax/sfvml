@@ -18,7 +18,7 @@ namespace Sfvml
 {
 
 template <typename Character>
-Position getCroppedArea(const cv::Mat& frame,
+Position getShiftedCrop(const cv::Mat& frame,
                         const Position& prevPosition,
                         const Direction& updateDirection,
                         const Character& character,
@@ -94,10 +94,14 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
     Position globalPosition = lastPosition;
     double globalDistance = std::numeric_limits<double>::max();
     double descentStep;
+    // If at the end of our look around our match is still low quality we give a kick
+    // to the search window
+    bool   kickOutDone = false;
+    double coolingFactor = 1.0;
+    size_t currentSearchIter = 0;
 
     do
     {
-        double coolingFactor = 1.0;
         cv::Mat localCrop;
         std::cout << "Entering local search with global min distance " << globalDistance
                   << " and global min position " << globalPosition << std::endl;
@@ -106,7 +110,7 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
         for(auto&& direction : updateDirections)
         {
             cv::Mat localCrop;
-            Position localPosition = getCroppedArea(frame,
+            Position localPosition = getShiftedCrop(frame,
                                                     globalPosition,
                                                     direction,
                                                     character,
@@ -128,14 +132,26 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
                           << " with local distance " << localDistance << "\n";
             } 
         }
+        ++currentSearchIter;
 
-        std::cout << "New global min " << nextGlobalDistance << " at position "
+        std::cout << "(" << currentSearchIter << ") New global min " 
+                  << nextGlobalDistance << " at position "
                   << nextGlobalPosition << std::endl;
         globalPosition = nextGlobalPosition;
-        descentStep = std::abs(nextGlobalDistance - globalDistance);
+        descentStep = nextGlobalDistance - globalDistance;
         globalDistance = nextGlobalDistance;
-        coolingFactor *= 0.9;
-    } while (descentStep > property::k_descentThreshold);
+        // TODO cooling factor should be a function of the progress made
+        coolingFactor *= 0.6;
+        
+        // Stuck on a loozy local min, give a kick
+        if (descentStep == .0 
+            && globalDistance > character.trackThreshold) 
+        {
+            std::cout << " Giving a kick to the search" << std::endl;
+            coolingFactor = 1.5;
+        }
+
+    } while (descentStep < 0 && currentSearchIter < property::k_maxSearchIter);
     std::cout << "Ending annealing search with position " << globalPosition
               << " with distance " << globalDistance 
               << " and descentStep " << descentStep << std::endl;
@@ -143,6 +159,7 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
     globalCrop.copyTo(*nextCharacterCrop);
     globalTransformedCrop.copyTo(*nextSortedCharacterCrop);
     return globalPosition;
+    // TODO if distance is more than 40000 it s probably shit
 }
 
 
@@ -195,12 +212,18 @@ void getCharacterTrajectories(const std::string&     videoFilename,
 
     while (!frameExtractor.isLastFrame())
     {
-        std::cout << "Frame " << currentlyTrackedFrame << std::endl;
+        frameExtractor >> extractedFrame;
+        // current points to one past read, hence - 1 
+        currentlyTrackedFrame = frameExtractor.currentFrame() - 1;         
+        frameExtractor.discardNextNFrames(property::k_trackStep);
+        
+        std::cout << "\n================== Frame " << currentlyTrackedFrame 
+                  << " (from " << prevTrackedFrame << ")" << std::endl;
         cv::Mat nextCrop; 
         cv::Mat nextSortedCrop; 
         Position nextPosition = simulatedAnnealingSearch(extractedFrame,
                                                          characterP1Crop,
-                                                         (*trajectoryP1)[currentlyTrackedFrame],
+                                                         (*trajectoryP1)[prevTrackedFrame],
                                                          characterP1,
                                                          &nextCrop,
                                                          &nextSortedCrop);
@@ -216,12 +239,8 @@ void getCharacterTrajectories(const std::string&     videoFilename,
         extractedFrameFilename.str("");
         
         // TODO interpolate in between
-        
-        frameExtractor >> extractedFrame;
-        // current points to one past read, hence - 1 
-        currentlyTrackedFrame = frameExtractor.currentFrame() - 1;         
-        frameExtractor.discardNextNFrames(property::k_trackStep);
-        
+        prevTrackedFrame = currentlyTrackedFrame;
+                
    }
 }
 
