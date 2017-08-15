@@ -1,13 +1,23 @@
 #ifndef SFVML_FRAMETRANSFORMER
 #define SFVML_FRAMETRANSFORMER
 
+// sfvml
+#include "sfvml_type.h"
 // opencv2
 #include "opencv2/opencv.hpp"
 
 namespace Sfvml            {
 namespace FrameTransformer {
 
-    // FIXME should not be here, this does not transform anything
+void addTracker(cv::Mat *frame,
+                const std::vector<Position>& trajectory,
+                size_t frameIdx);
+
+void addTrajectoryToVideo(const std::string& inVideoFilename,
+                          const std::string& outVideoFilename,
+                          const std::vector<Position>& trajectory);
+
+// FIXME should not be here, this does not transform anything
 double compareHistogram(const cv::Mat& frameA, const cv::Mat& frameB);
 
 // Remove (= set to black) the grey pixels, where we expect

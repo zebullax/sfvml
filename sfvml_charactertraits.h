@@ -22,9 +22,9 @@ struct CharacterTrait<CharacterName::Urien, Width, Height>
     // TODO change for type Position ?
     // Top left corner
     double      p1StartX = (130 / 1280.0) * Width;
-	double      p1StartY = (190 / 720.0) * Height;
+    double      p1StartY = (190 / 720.0) * Height;
     double      width    = (300 / 1280.0) * Width;
-	double      height   = (510 / 720.0) * Height;
+    double      height   = (510 / 720.0) * Height;
     std::string name     = "Urien";
     // FIXME the threshold should probably normalized by nb of pixels
     double      trackThreshold = 45000.0;
@@ -36,8 +36,10 @@ struct CharacterTrait<CharacterName::Laura, Width, Height>
     double      p2StartX = (800 / 1280.0) * Width;
     double      p2StartY = (250 / 720.0) * Height;
     double      width    = (290 / 1280.0) * Width;
-	double      height   = (440 / 720.0) * Height;
+    double      height   = (440 / 720.0) * Height;
     std::string name     = "Laura";
+    // FIXME the threshold should probably normalized by nb of pixels
+    double      trackThreshold = 45000.0;
 };
 
 } // sfvml

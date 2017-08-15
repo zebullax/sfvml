@@ -11,11 +11,15 @@
 #include <array>
 #include <vector>
 #include <cmath>
+#include <iomanip>
 // opencv
 #include "opencv2/opencv.hpp"
 
-namespace Sfvml
-{
+namespace Sfvml {
+
+void interpolatePositionGap(std::vector<Position> *trajectoryP1,
+                            size_t prevIdx, 
+                            size_t currIdx);
 
 template <typename Character>
 Position getShiftedCrop(const cv::Mat& frame,
@@ -52,8 +56,8 @@ Position getShiftedCrop(const cv::Mat& frame,
     newY = std::max<int32_t>(newY, 0);
     newY = std::min<int32_t>(newY, static_cast<int32_t>(720 - character.height));
     
-    ////std::cout << updateDirection << ": X " << prevX << "->" << newX 
-    ////          << ", Y " << prevY << "->" << newY << std::endl;
+    std::cout << "getShiftedCrop: " << updateDirection << ": X " << prevX << "->" << newX 
+              << ", Y " << prevY << "->" << newY << '\n';
     
     frame(cv::Rect(newX,
                    newY,
@@ -94,17 +98,15 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
     Position globalPosition = lastPosition;
     double globalDistance = std::numeric_limits<double>::max();
     double descentStep;
-    // If at the end of our look around our match is still low quality we give a kick
-    // to the search window
-    bool   kickOutDone = false;
-    double coolingFactor = 1.0;
+    
+    double coolingFactor     = 1.0;
     size_t currentSearchIter = 0;
 
     do
     {
         cv::Mat localCrop;
         std::cout << "Entering local search with global min distance " << globalDistance
-                  << " and global min position " << globalPosition << std::endl;
+                  << " and global min position " << globalPosition << '\n';
         Position nextGlobalPosition;
         double nextGlobalDistance = globalDistance;
         for(auto&& direction : updateDirections)
@@ -129,10 +131,9 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
                 localTransformedCrop.copyTo(globalTransformedCrop);
                 std::cout << "Picking " << direction << " move from " 
                           << globalPosition << " to " << localPosition 
-                          << " with local distance " << localDistance << "\n";
+                          << " with local distance " << localDistance << '\n';
             } 
         }
-        ++currentSearchIter;
 
         std::cout << "(" << currentSearchIter << ") New global min " 
                   << nextGlobalDistance << " at position "
@@ -141,20 +142,14 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
         descentStep = nextGlobalDistance - globalDistance;
         globalDistance = nextGlobalDistance;
         // TODO cooling factor should be a function of the progress made
-        coolingFactor *= 0.6;
-        
-        // Stuck on a loozy local min, give a kick
-        if (descentStep == .0 
-            && globalDistance > character.trackThreshold) 
-        {
-            std::cout << " Giving a kick to the search" << std::endl;
-            coolingFactor = 1.5;
-        }
-
-    } while (descentStep < 0 && currentSearchIter < property::k_maxSearchIter);
+        coolingFactor *= 0.75;
+        ++currentSearchIter;
+   
+    } while (descentStep < 0 || currentSearchIter < property::k_maxSearchIter);
+    
     std::cout << "Ending annealing search with position " << globalPosition
               << " with distance " << globalDistance 
-              << " and descentStep " << descentStep << std::endl;
+              << " and descentStep " << descentStep << '\n';
 
     globalCrop.copyTo(*nextCharacterCrop);
     globalTransformedCrop.copyTo(*nextSortedCharacterCrop);
@@ -172,14 +167,16 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                               FirstCharacter         characterP1,
                               std::vector<Position> *trajectoryCharacter2,
                               SecondCharacter        secondCharacter,
-                              Measure                norm)
+                              Measure                norm,
+                              bool                   saveIntermediateCrop = false)
 {
 	FrameExtractor frameExtractor(videoFilename, true);
     if (!frameExtractor) {
         std::cerr << "Error opening '" << videoFilename << "'\n";
         return;
     }
-    // holds the x,y at the center of the character
+    
+    // Holds the x,y at the center of the character
     trajectoryP1->resize(frameExtractor.nbOfFrames());
 
     std::string outFilePrefix(videoFilename);
@@ -187,7 +184,7 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                  outFilePrefix.end(),
                  '.',
                  '_');
-    std::ostringstream extractedFrameFilename(outFilePrefix);
+    std::ostringstream extractedFrameFilename;
 
 	// Those will hold the square supposedly framing the characters
     cv::Mat characterP1Crop;
@@ -204,9 +201,11 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                                                + characterP1.width / 2,
                                                characterP1.p1StartY 
                                                + characterP1.height / 2};
-	getStartingCharVectors(extractedFrame,
-	                       &characterP1Crop,
-	                       characterP1);
+    
+    // Load reference crops used to match subsequent crops
+    getReferenceCharCrop(&characterP1Crop,
+	                     characterP1,
+                         1);
     FrameTransformer::removeGreyPixels(&characterP1Crop);
     FrameTransformer::sortFramePixels(&characterP1Crop);
 
@@ -232,16 +231,24 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                                << outFilePrefix
                                << std::setw(10) << std::setfill('0')
                                << currentlyTrackedFrame << ".jpg";
-        prevTrackedFrame = currentlyTrackedFrame;
         nextCrop.reshape(characterP1.width, characterP1.height);
-        cv::imwrite(extractedFrameFilename.str(), nextCrop);
-        cv::imwrite(extractedFrameFilename.str() + "_sorted.jpg", nextSortedCrop);
-        extractedFrameFilename.str("");
-        
+
+        if (saveIntermediateCrop) {
+            cv::imwrite(extractedFrameFilename.str(), nextCrop);
+            cv::imwrite(extractedFrameFilename.str() + "_sorted.jpg", nextSortedCrop);
+            extractedFrameFilename.str("");
+        }
+        interpolatePositionGap(trajectoryP1, 
+                               prevTrackedFrame,
+                               currentlyTrackedFrame);
+        // FIXME Early return used for DEV
+        if (currentlyTrackedFrame >= property::k_sampleOutput) {
+            FrameTransformer::addTrajectoryToVideo(frameExtractor.filename(), "out" + frameExtractor.filename() , *trajectoryP1);
+            return;
+        }
         // TODO interpolate in between
         prevTrackedFrame = currentlyTrackedFrame;
-                
-   }
+    }
 }
 
 
@@ -259,6 +266,20 @@ void getStartingCharVectors(const cv::Mat&  firstFrame,
 
 }
 
+template <typename Character>
+void getReferenceCharCrop(cv::Mat *characterVector,
+                          const Character &character,
+                          size_t   colorIdx)
+{
+    std::ostringstream filename;
+    filename << property::k_frameOutputFolder
+             << character.name
+             << "_c" << colorIdx
+             << ".jpg";
+    *characterVector = cv::imread(filename.str());
+    characterVector->reshape(1, character.width * character.height);
+
+}
 template <CharacterName characterName>
 void displayCharacter(const cv::Mat&                characterVector, 
                       CharacterTrait<characterName> characterTrait)
