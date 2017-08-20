@@ -6,40 +6,7 @@
 // opencv
 #include "opencv2/opencv.hpp"
 
-namespace Sfvml            {
-namespace FrameTransformer {
-
-void addTracker(cv::Mat *frame,
-                const std::vector<Position>& trajectory,
-                size_t frameIdx)
-{
-    cv::circle(*frame, 
-               cv::Point(trajectory[frameIdx].x, trajectory[frameIdx].y), 
-               10, 
-               cv::Scalar(255, 255, 255));
-}
-
-
-void addTrajectoryToVideo(const std::string& inVideoFilename,
-                          const std::string& outVideoFilename,
-                          const std::vector<Position>& trajectory)
-{
-    cv::VideoCapture vidRead(inVideoFilename);
-    cv::VideoWriter vidWrite(outVideoFilename, 
-                             CV_FOURCC('A','V','C','1'), 
-                             29, 
-                             cv::Size(1280, 720));
-    cv::Mat extractedFrame;
-    size_t currIdx = 0;
-
-    while(vidRead.read(extractedFrame) && currIdx < property::k_sampleOutput)
-    {
-        addTracker(&extractedFrame, trajectory, currIdx);
-        vidWrite.write(extractedFrame);
-        ++currIdx;
-    }
-}
-
+namespace Sfvml {
 
 double compareHistogram(const cv::Mat& frameA, const cv::Mat& frameB)
 {
@@ -76,22 +43,32 @@ double compareHistogram(const cv::Mat& frameA, const cv::Mat& frameB)
 }
 
 
-void removeGreyPixels(cv::Mat* frame) 
+void removeBlackPixels(cv::Mat *frame)
 {
-    // No forEach in opencv 2.3.12
-    for (size_t r = 0; r < frame->rows; ++r) 
+    cv::Mat correctedFrame;
+    // ...No forEach in opencv 2.3.12
+    for (size_t r = 0; r < frame->cols; ++r) 
     {
-        for (size_t c = 0; c < frame->cols; ++c)
+        cv::Vec3b& p = frame->at<cv::Vec3b>(r);
+        if (p[0] != 0 || p[1] != 0 || p[2] != 0) {
+            correctedFrame.push_back(p);
+        }
+    }
+    correctedFrame.reshape(0, 1).copyTo(*frame);
+}
+
+void removeGreyPixels(cv::Mat *frame) 
+{
+    for (size_t r = 0; r < frame->cols; ++r) 
+    {
+        cv::Vec3b & p = frame->at<cv::Vec3b>(r);
+        // 90^3 and 140^3 are the main grey in the background
+        if (std::sqrt(std::pow((p[0] - 140), 2) + std::pow((p[1] - 140), 2) + std::pow((p[3] - 140), 2))  < property::k_greyThreshold
+            || std::sqrt(std::pow((p[0] - 90), 2) + std::pow((p[1] - 90), 2) + std::pow((p[2] - 90), 2)) < property::k_greyThreshold)
         {
-            cv::Vec3b & p = frame->at<cv::Vec3b>(r, c);
-            // 90^3 and 140^3 are the main grey in the background
-            if (std::sqrt(std::pow((p[0] - 140), 2) + std::pow((p[1] - 140), 2) + std::pow((p[3] - 140), 2))  < property::k_greyThreshold
-                || std::sqrt(std::pow((p[0] - 90), 2) + std::pow((p[1] - 90), 2) + std::pow((p[2] - 90), 2)) < property::k_greyThreshold)
-            {
-                p[0] = 0;
-                p[1] = 0;
-                p[2] = 0;
-            }
+            p[0] = 0;
+            p[1] = 0;
+            p[2] = 0;
         }
     }
 }
@@ -132,5 +109,4 @@ void sortFramePixels(cv::Mat *frame)
     cv::cvtColor(hsvFrame, *frame, CV_HSV2BGR); 
 }
 
-} // FrameTransformer::
 } // Sfvml::

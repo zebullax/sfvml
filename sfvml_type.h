@@ -12,6 +12,15 @@ namespace Sfvml {
 struct Position { double x; 
                   double y; };
 
+inline bool operator==(const Position& lhs, const Position& rhs) {
+    // TODO need for epsilon comp ?
+    return (lhs.x == rhs.x && lhs.y == rhs.y);
+}
+
+inline bool operator!=(const Position& lhs, const Position& rhs) {
+    return !(lhs == rhs);
+}
+
 inline std::ostream& operator<<(std::ostream& os, const Position& pos) {
     os << "x:" << pos.x << ", y:" << pos.y;
     return os;

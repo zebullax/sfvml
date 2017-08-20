@@ -27,7 +27,7 @@ struct CharacterTrait<CharacterName::Urien, Width, Height>
     double      height   = (510 / 720.0) * Height;
     std::string name     = "Urien";
     // FIXME the threshold should probably normalized by nb of pixels
-    double      trackThreshold = 45000.0;
+    double      matchThreshold = 29000.0;
 };
 
 template<size_t Width, size_t Height> 
@@ -39,7 +39,7 @@ struct CharacterTrait<CharacterName::Laura, Width, Height>
     double      height   = (440 / 720.0) * Height;
     std::string name     = "Laura";
     // FIXME the threshold should probably normalized by nb of pixels
-    double      trackThreshold = 45000.0;
+    double      matchThreshold = 30000.0;
 };
 
 } // sfvml

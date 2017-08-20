@@ -7,6 +7,7 @@
 #include "sfvml_type.h"
 #include "sfvml_frameextractor.h"
 #include "sfvml_frametransformer.h"
+#include "sfvml_frametransformerpipeline.h"
 // std
 #include <array>
 #include <vector>
@@ -17,17 +18,38 @@
 
 namespace Sfvml {
 
+// Linearly interpolate character positions between 2 keyframe
+// trajectoryP1 -> vector holding the positions of the character 
+// prevIdx -> last known position
+// currIdx -> most recently detected position
 void interpolatePositionGap(std::vector<Position> *trajectoryP1,
                             size_t prevIdx, 
                             size_t currIdx);
 
+void interpolatePositionInTrajectory(std::vector<Position> *trajectoryP1,
+                                     const std::vector<size_t>& validFrames);
+
+// Add a small visual clue representing detected position
+void addTracker(cv::Mat *frame,
+                const std::vector<Position>& trajectory,
+                size_t frameIdx);
+
+// OVerlay the detected trajectory on top of the video
+void addTrajectoryToVideo(const std::string& inVideoFilename,
+                          const std::string& outVideoFilename,
+                          const std::vector<Position>& trajectory);
+
+bool detectPreRound(const cv::Mat& frame);
+
+// Return a shifter crop of the image relative to prevPosition
+// The return cropped is a row vector
 template <typename Character>
-Position getShiftedCrop(const cv::Mat& frame,
-                        const Position& prevPosition,
-                        const Direction& updateDirection,
-                        const Character& character,
-                        cv::Mat* croppedROI,
-                        double coolingRatio = 1.0)
+Position getShiftedCrop(const cv::Mat&    frame,
+                        const Position&   prevPosition,
+                        const Direction&  updateDirection,
+                        const Character&  character,
+                        cv::Mat          *croppedROI,
+                        double            offsetScaleDownRatio = 1.0)
 {
    
     // Translate from center of character to top left corner
@@ -39,10 +61,9 @@ Position getShiftedCrop(const cv::Mat& frame,
     bool goUp    = (updateDirection & 4) != 0;
     bool goDown  = (updateDirection & 8) != 0;
 
-    size_t offsetH = coolingRatio * ((goRight || goLeft) ? character.width / 2 : 0);
-    size_t offsetV = coolingRatio * ((goUp || goDown) ? character.height / 2 : 0);
+    size_t offsetH = offsetScaleDownRatio * ((goRight || goLeft) ? character.width / 2 : 0);
+    size_t offsetV = offsetScaleDownRatio * ((goUp || goDown) ? character.height / 2 : 0);
 
-    // TODO change hardcoded 1200 * 720
     int32_t newX = prevX + (goLeft  ? -offsetH :
                             goRight ?  offsetH :
                             0);
@@ -51,30 +72,86 @@ Position getShiftedCrop(const cv::Mat& frame,
                             0);
 
     // clip to min max
+    // FIXME hardcoded video size
     newX = std::max<int32_t>(newX, 0);
-    newX = std::min<int32_t>(newX, static_cast<int32_t>(1200 - character.width));
+    newX = std::min<int32_t>(newX, static_cast<int32_t>(1280 - character.width));
     newY = std::max<int32_t>(newY, 0);
     newY = std::min<int32_t>(newY, static_cast<int32_t>(720 - character.height));
     
     std::cout << "getShiftedCrop: " << updateDirection << ": X " << prevX << "->" << newX 
               << ", Y " << prevY << "->" << newY << '\n';
-    
+
+    // Is it shit ? Yep...
+    // TODO Benchmark against other approach
     frame(cv::Rect(newX,
                    newY,
                    character.width,
-                   character.height)).copyTo(*croppedROI);        
-    croppedROI->reshape(1, character.width * character.height);
+                   character.height))
+        .clone()
+        .reshape(0, 1)
+        .copyTo(*croppedROI);        
+
     return { static_cast<double>(newX + character.width / 2), 
              static_cast<double>(newY + character.height / 2) };
 }
 
+// Do a linear scan of the frame with a sliding window to find the best match
+// Return the top left corner of the best position found if the match score
+// is under the threshold set in the character, otherwise 'k_characterNotFound'
 template<typename Character>
-Position simulatedAnnealingSearch(const cv::Mat&    frame,
+Position scanFullScreen(const cv::Mat&    frame,
+                        const cv::Mat&    refCharacterCrop,
+                        const Character&  character,
+                        const FrameTransformerPipeline& transformer,
+                        double                          offsetScaleDownRatio = 10.0)
+{
+    cv::Mat scratchVect;
+    std::cout << "Entering linear scan of the frame" << std::endl;
+    double globalDistance = std::numeric_limits<double>::max();
+    Position globalPosition;
+    for (size_t x = 0; 
+         x < 1280 - character.width; 
+         x += character.width / offsetScaleDownRatio)
+    {
+        for (size_t y = 0; 
+             y < 720 - character.height; 
+             y += character.height / (offsetScaleDownRatio * 2))
+        {
+            frame(cv::Rect(x,
+                           y,
+                           character.width,
+                           character.height))
+                .clone()
+                .reshape(0, 1)
+                .copyTo(scratchVect);
+            transformer(&scratchVect);
+            double localDistance = norm(scratchVect, refCharacterCrop);
+            std::cout << "Distance at " << x << ',' << y 
+                      << " = " <<localDistance << std::endl;
+            if (localDistance < globalDistance)
+            {
+                std::cout << "New minimum at " << x << "," << y 
+                          << " with distance " << localDistance << '\n';
+                globalDistance = localDistance;
+                globalPosition = {static_cast<double>(x), 
+                                  static_cast<double>(y)};
+            }
+        } 
+    }
+    if (globalDistance > character.matchThreshold) {
+        std::cout << "Failure to match while doing a full scan " << std::endl;
+    }
+    return (globalDistance > character.matchThreshold ? property::k_characterNotFound : 
+                                                        globalPosition);
+}
+
+template<typename Character>
+double simulatedAnnealingSearch(const cv::Mat&    frame,
                                   const cv::Mat&    refCharacterCrop,
                                   const Position&   lastPosition,
                                   const Character&  character,
-                                  cv::Mat          *nextCharacterCrop,
-                                  cv::Mat          *nextSortedCharacterCrop)
+                                  const FrameTransformerPipeline& transformer,
+                                  Position*         matchedPosition)
 {
 
     static std::vector<Direction> updateDirections {
@@ -89,18 +166,17 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
         k_DOWNLEFT
     };
     
-    // Here 'local' refer to minimum as they are found in an iteration of 
-    // the search, while 'global' is the overall minimum
-    // nextGlobal is used to track the new global min when exploring locally
+    // Here "local" refer to minimum as they are found in an iteration of 
+    // the search, while "global" is the overall minimum. "nextGlobal" is used to 
+    // track the new global min when exploring locally and will be used to update "global"
    
-    cv::Mat globalCrop;
-    cv::Mat globalTransformedCrop;
-    Position globalPosition = lastPosition;
-    double globalDistance = std::numeric_limits<double>::max();
-    double descentStep;
-    
-    double coolingFactor     = 1.0;
-    size_t currentSearchIter = 0;
+    cv::Mat  globalCrop;
+    cv::Mat  globalTransformedCrop;
+    Position globalPosition   = lastPosition;
+    double  globalDistance    = std::numeric_limits<double>::max();
+    double  descentStep       = .0;  
+    double  coolingFactor     = 0.85;
+    size_t  currentSearchIter = 0;
 
     do
     {
@@ -119,16 +195,13 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
                                                     &localCrop);
             cv::Mat localTransformedCrop;
             localCrop.copyTo(localTransformedCrop);
-            FrameTransformer::removeGreyPixels(&localTransformedCrop);
-            FrameTransformer::sortFramePixels(&localTransformedCrop); 
+            transformer(&localTransformedCrop);
             double localDistance = norm(localTransformedCrop, refCharacterCrop);
             std::cout << "Local distance to " << direction << " " << localDistance << '\n'; 
             if (localDistance < nextGlobalDistance)
             {
                 nextGlobalDistance = localDistance;
                 nextGlobalPosition = localPosition;
-                localCrop.copyTo(globalCrop); // FIXME straigth to nextCharacterCrop ?
-                localTransformedCrop.copyTo(globalTransformedCrop);
                 std::cout << "Picking " << direction << " move from " 
                           << globalPosition << " to " << localPosition 
                           << " with local distance " << localDistance << '\n';
@@ -145,16 +218,17 @@ Position simulatedAnnealingSearch(const cv::Mat&    frame,
         coolingFactor *= 0.75;
         ++currentSearchIter;
    
-    } while (descentStep < 0 || currentSearchIter < property::k_maxSearchIter);
+    } while (descentStep < 0 /* || currentSearchIter < property::k_maxSearchIter */);
     
     std::cout << "Ending annealing search with position " << globalPosition
               << " with distance " << globalDistance 
               << " and descentStep " << descentStep << '\n';
 
-    globalCrop.copyTo(*nextCharacterCrop);
-    globalTransformedCrop.copyTo(*nextSortedCharacterCrop);
-    return globalPosition;
-    // TODO if distance is more than 40000 it s probably shit
+ 
+    
+    *matchedPosition = globalDistance > character.matchThreshold ? property::k_characterNotFound
+                                                                 : globalPosition;
+    return globalDistance;
 }
 
 
@@ -168,16 +242,21 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                               std::vector<Position> *trajectoryCharacter2,
                               SecondCharacter        secondCharacter,
                               Measure                norm,
-                              bool                   saveIntermediateCrop = false)
+                              bool                   saveIntermediateCrop = true)
 {
 	FrameExtractor frameExtractor(videoFilename, true);
     if (!frameExtractor) {
         std::cerr << "Error opening '" << videoFilename << "'\n";
         return;
     }
-    
+   
+    FrameTransformerPipeline vectTransformer{removeGreyPixels,
+                                             sortFramePixels};
+                                                // removeBlackPixel TODO
     // Holds the x,y at the center of the character
     trajectoryP1->resize(frameExtractor.nbOfFrames());
+    // Holds the frames idx with valid match
+    std::vector<size_t> validFrames;
 
     std::string outFilePrefix(videoFilename);
     std::replace(outFilePrefix.begin(),
@@ -187,7 +266,7 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     std::ostringstream extractedFrameFilename;
 
 	// Those will hold the square supposedly framing the characters
-    cv::Mat characterP1Crop;
+    cv::Mat characterP1Vect;
 
     // Prime the pump, starting position is fixed 
 	cv::Mat extractedFrame;
@@ -201,15 +280,14 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                                                + characterP1.width / 2,
                                                characterP1.p1StartY 
                                                + characterP1.height / 2};
-    
+    validFrames.push_back(0); 
     // Load reference crops used to match subsequent crops
-    getReferenceCharCrop(&characterP1Crop,
+    getReferenceCharVect(&characterP1Vect,
 	                     characterP1,
                          1);
-    FrameTransformer::removeGreyPixels(&characterP1Crop);
-    FrameTransformer::sortFramePixels(&characterP1Crop);
-
-    while (!frameExtractor.isLastFrame())
+    vectTransformer(&characterP1Vect);
+    
+    while (!frameExtractor.isLastFrame() && currentlyTrackedFrame < property::k_sampleOutput)
     {
         frameExtractor >> extractedFrame;
         // current points to one past read, hence - 1 
@@ -218,37 +296,47 @@ void getCharacterTrajectories(const std::string&     videoFilename,
         
         std::cout << "\n================== Frame " << currentlyTrackedFrame 
                   << " (from " << prevTrackedFrame << ")" << std::endl;
-        cv::Mat nextCrop; 
-        cv::Mat nextSortedCrop; 
-        Position nextPosition = simulatedAnnealingSearch(extractedFrame,
-                                                         characterP1Crop,
-                                                         (*trajectoryP1)[prevTrackedFrame],
-                                                         characterP1,
-                                                         &nextCrop,
-                                                         &nextSortedCrop);
-        (*trajectoryP1)[currentlyTrackedFrame] = nextPosition;
-        extractedFrameFilename << property::k_frameOutputFolder
-                               << outFilePrefix
-                               << std::setw(10) << std::setfill('0')
-                               << currentlyTrackedFrame << ".jpg";
-        nextCrop.reshape(characterP1.width, characterP1.height);
 
-        if (saveIntermediateCrop) {
-            cv::imwrite(extractedFrameFilename.str(), nextCrop);
-            cv::imwrite(extractedFrameFilename.str() + "_sorted.jpg", nextSortedCrop);
-            extractedFrameFilename.str("");
+        Position nextPosition = (*trajectoryP1)[prevTrackedFrame];
+        // If we detect a pre round sequence, we just copy over previous position
+        if (!detectPreRound(extractedFrame))
+        {
+            if ((*trajectoryP1)[prevTrackedFrame] == property::k_characterNotFound)
+            {
+                std::cout << "Last frame had no match trying to reset with full scan\n";
+                // If we did not find it last time even after scanning the 
+                // full frames , we reset and try super hard (hence the '10')
+                nextPosition = scanFullScreen(extractedFrame,
+                                              characterP1Vect,
+                                              characterP1,
+                                              vectTransformer);
+            }
+            else
+            {
+                if (simulatedAnnealingSearch(extractedFrame,
+                                             characterP1Vect,
+                                             (*trajectoryP1)[prevTrackedFrame],
+                                             characterP1,
+                                             vectTransformer,
+                                             &nextPosition) > characterP1.matchThreshold) 
+                {
+                    std::cout << "Finishing smart search...switching to brute search\n";
+                    nextPosition = scanFullScreen(extractedFrame,
+                                                  characterP1Vect,
+                                                  characterP1,
+                                                  vectTransformer); 
+                }         
+            }
         }
-        interpolatePositionGap(trajectoryP1, 
-                               prevTrackedFrame,
-                               currentlyTrackedFrame);
-        // FIXME Early return used for DEV
-        if (currentlyTrackedFrame >= property::k_sampleOutput) {
-            FrameTransformer::addTrajectoryToVideo(frameExtractor.filename(), "out" + frameExtractor.filename() , *trajectoryP1);
-            return;
+        (*trajectoryP1)[currentlyTrackedFrame] = nextPosition;
+        // Save valid matches
+        if (nextPosition != property::k_characterNotFound) {
+            validFrames.push_back(currentlyTrackedFrame);
         }
-        // TODO interpolate in between
         prevTrackedFrame = currentlyTrackedFrame;
     }
+    interpolatePositionInTrajectory(trajectoryP1,
+                                    validFrames);
 }
 
 
@@ -262,32 +350,37 @@ void getStartingCharVectors(const cv::Mat&  firstFrame,
                         character.p1StartY, 
                         character.width, 
                         character.height)).copyTo(*characterVector);
-    characterVector->reshape(1, character.width * character.height);
+    characterVector->reshape(0, 1);
 
 }
 
 template <typename Character>
-void getReferenceCharCrop(cv::Mat *characterVector,
-                          const Character &character,
-                          size_t   colorIdx)
+void getReferenceCharVect(cv::Mat         *characterVector,
+                          const Character& character,
+                          size_t           colorIdx)
 {
     std::ostringstream filename;
-    filename << property::k_frameOutputFolder
+    filename << property::k_referenceCropFolder
              << character.name
-             << "_c" << colorIdx
-             << ".jpg";
-    *characterVector = cv::imread(filename.str());
-    characterVector->reshape(1, character.width * character.height);
-
+             << "_c" << colorIdx 
+             << ".png";
+    std::cout << "Loading reference character '"
+              << character.name
+              << "' from '" 
+              << filename.str() << '\'' << std::endl;
+    
+    cv::imread(filename.str())
+        .reshape(0, 1)
+        .copyTo(*characterVector);
 }
+
 template <CharacterName characterName>
-void displayCharacter(const cv::Mat&                characterVector, 
-                      CharacterTrait<characterName> characterTrait)
+void displayCharacterVect(const cv::Mat&                characterVector, 
+                         CharacterTrait<characterName> characterTrait)
 {
-	cv::Mat reconstructedImg;
-    characterVector.copyTo(reconstructedImg);
-    reconstructedImg.reshape(characterTrait.width, characterTrait.height);
-	cv::imshow(characterTrait.name, reconstructedImg);
+	cv::imshow(characterTrait.name, 
+               characterVector.reshape(characterTrait.width, 
+                                       characterTrait.height));
 	cv::waitKey();
 }
 
