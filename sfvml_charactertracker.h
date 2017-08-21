@@ -12,6 +12,7 @@
 #include <array>
 #include <vector>
 #include <cmath>
+#include <utility>
 #include <iomanip>
 // opencv
 #include "opencv2/opencv.hpp"
@@ -103,7 +104,8 @@ Position scanFullScreen(const cv::Mat&    frame,
                         const cv::Mat&    refCharacterCrop,
                         const Character&  character,
                         const FrameTransformerPipeline& transformer,
-                        double                          offsetScaleDownRatio = 10.0)
+                        double           *minDistance,
+                        double                          offsetScaleDownRatio = 2.0)
 {
     cv::Mat scratchVect;
     std::cout << "Entering linear scan of the frame" << std::endl;
@@ -115,7 +117,7 @@ Position scanFullScreen(const cv::Mat&    frame,
     {
         for (size_t y = 0; 
              y < 720 - character.height; 
-             y += character.height / (offsetScaleDownRatio * 2))
+             y += character.height / (offsetScaleDownRatio /* Todo account for crop h/w */))
         {
             frame(cv::Rect(x,
                            y,
@@ -141,94 +143,9 @@ Position scanFullScreen(const cv::Mat&    frame,
     if (globalDistance > character.matchThreshold) {
         std::cout << "Failure to match while doing a full scan " << std::endl;
     }
+    *minDistance = globalDistance;
     return (globalDistance > character.matchThreshold ? property::k_characterNotFound : 
                                                         globalPosition);
-}
-
-template<typename Character>
-double simulatedAnnealingSearch(const cv::Mat&    frame,
-                                  const cv::Mat&    refCharacterCrop,
-                                  const Position&   lastPosition,
-                                  const Character&  character,
-                                  const FrameTransformerPipeline& transformer,
-                                  Position*         matchedPosition)
-{
-
-    static std::vector<Direction> updateDirections {
-        k_IDENT,
-        k_RIGHT,
-        k_LEFT,
-        k_UP,
-        k_DOWN,
-        k_UPLEFT,
-        k_UPRIGHT,
-        k_DOWNRIGHT,
-        k_DOWNLEFT
-    };
-    
-    // Here "local" refer to minimum as they are found in an iteration of 
-    // the search, while "global" is the overall minimum. "nextGlobal" is used to 
-    // track the new global min when exploring locally and will be used to update "global"
-   
-    cv::Mat  globalCrop;
-    cv::Mat  globalTransformedCrop;
-    Position globalPosition   = lastPosition;
-    double  globalDistance    = std::numeric_limits<double>::max();
-    double  descentStep       = .0;  
-    double  coolingFactor     = 0.85;
-    size_t  currentSearchIter = 0;
-
-    do
-    {
-        cv::Mat localCrop;
-        std::cout << "Entering local search with global min distance " << globalDistance
-                  << " and global min position " << globalPosition << '\n';
-        Position nextGlobalPosition;
-        double nextGlobalDistance = globalDistance;
-        for(auto&& direction : updateDirections)
-        {
-            cv::Mat localCrop;
-            Position localPosition = getShiftedCrop(frame,
-                                                    globalPosition,
-                                                    direction,
-                                                    character,
-                                                    &localCrop);
-            cv::Mat localTransformedCrop;
-            localCrop.copyTo(localTransformedCrop);
-            transformer(&localTransformedCrop);
-            double localDistance = norm(localTransformedCrop, refCharacterCrop);
-            std::cout << "Local distance to " << direction << " " << localDistance << '\n'; 
-            if (localDistance < nextGlobalDistance)
-            {
-                nextGlobalDistance = localDistance;
-                nextGlobalPosition = localPosition;
-                std::cout << "Picking " << direction << " move from " 
-                          << globalPosition << " to " << localPosition 
-                          << " with local distance " << localDistance << '\n';
-            } 
-        }
-
-        std::cout << "(" << currentSearchIter << ") New global min " 
-                  << nextGlobalDistance << " at position "
-                  << nextGlobalPosition << std::endl;
-        globalPosition = nextGlobalPosition;
-        descentStep = nextGlobalDistance - globalDistance;
-        globalDistance = nextGlobalDistance;
-        // TODO cooling factor should be a function of the progress made
-        coolingFactor *= 0.75;
-        ++currentSearchIter;
-   
-    } while (descentStep < 0 /* || currentSearchIter < property::k_maxSearchIter */);
-    
-    std::cout << "Ending annealing search with position " << globalPosition
-              << " with distance " << globalDistance 
-              << " and descentStep " << descentStep << '\n';
-
- 
-    
-    *matchedPosition = globalDistance > character.matchThreshold ? property::k_characterNotFound
-                                                                 : globalPosition;
-    return globalDistance;
 }
 
 
@@ -250,13 +167,16 @@ void getCharacterTrajectories(const std::string&     videoFilename,
         return;
     }
    
-    FrameTransformerPipeline vectTransformer{removeGreyPixels,
+    FrameTransformerPipeline vectTransformer{//removeGreyPixels,
                                              sortFramePixels};
                                                 // removeBlackPixel TODO
     // Holds the x,y at the center of the character
     trajectoryP1->resize(frameExtractor.nbOfFrames());
-    // Holds the frames idx with valid match
+    // Holds the frames idx with valid match and frames with no matches found
     std::vector<size_t> validFrames;
+    std::vector<size_t> unmatchedFrames;
+    // Holds the distance to best match at each frames
+    std::vector<std::pair<size_t, double>> distances;
 
     std::string outFilePrefix(videoFilename);
     std::replace(outFilePrefix.begin(),
@@ -298,42 +218,34 @@ void getCharacterTrajectories(const std::string&     videoFilename,
                   << " (from " << prevTrackedFrame << ")" << std::endl;
 
         Position nextPosition = (*trajectoryP1)[prevTrackedFrame];
+        double distanceToBestMatch = .0;
         // If we detect a pre round sequence, we just copy over previous position
         if (!detectPreRound(extractedFrame))
         {
-            if ((*trajectoryP1)[prevTrackedFrame] == property::k_characterNotFound)
-            {
-                std::cout << "Last frame had no match trying to reset with full scan\n";
-                // If we did not find it last time even after scanning the 
-                // full frames , we reset and try super hard (hence the '10')
-                nextPosition = scanFullScreen(extractedFrame,
-                                              characterP1Vect,
-                                              characterP1,
-                                              vectTransformer);
-            }
-            else
-            {
-                if (simulatedAnnealingSearch(extractedFrame,
-                                             characterP1Vect,
-                                             (*trajectoryP1)[prevTrackedFrame],
-                                             characterP1,
-                                             vectTransformer,
-                                             &nextPosition) > characterP1.matchThreshold) 
-                {
-                    std::cout << "Finishing smart search...switching to brute search\n";
-                    nextPosition = scanFullScreen(extractedFrame,
-                                                  characterP1Vect,
-                                                  characterP1,
-                                                  vectTransformer); 
-                }         
-            }
+            nextPosition = scanFullScreen(extractedFrame,
+                                  characterP1Vect,
+                                  characterP1,
+                                  vectTransformer,
+                                  &distanceToBestMatch); 
         }
         (*trajectoryP1)[currentlyTrackedFrame] = nextPosition;
         // Save valid matches
         if (nextPosition != property::k_characterNotFound) {
             validFrames.push_back(currentlyTrackedFrame);
         }
+        else {
+            unmatchedFrames.push_back(currentlyTrackedFrame);
+        }
+        distances.emplace_back(currentlyTrackedFrame, distanceToBestMatch);
         prevTrackedFrame = currentlyTrackedFrame;
+    }
+
+    // TODO remove from prod
+    for (auto&& u : unmatchedFrames) {
+        std::cout << "Unmatched : " << u << std::endl;
+    }
+    for (auto&& d : distances){
+        std::cout << "Best distance in frame " << d.first << " = " << d.second << std::endl;
     }
     interpolatePositionInTrajectory(trajectoryP1,
                                     validFrames);
@@ -362,7 +274,7 @@ void getReferenceCharVect(cv::Mat         *characterVector,
     std::ostringstream filename;
     filename << property::k_referenceCropFolder
              << character.name
-             << "_c" << colorIdx 
+             << "_ccc" << colorIdx 
              << ".png";
     std::cout << "Loading reference character '"
               << character.name

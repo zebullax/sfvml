@@ -23,11 +23,11 @@ struct CharacterTrait<CharacterName::Urien, Width, Height>
     // Top left corner
     double      p1StartX = (130 / 1280.0) * Width;
     double      p1StartY = (190 / 720.0) * Height;
-    double      width    = (300 / 1280.0) * Width;
-    double      height   = (510 / 720.0) * Height;
+    double      width    = (50 / 1280.0) * Width;
+    double      height   = (60 / 720.0) * Height;
     std::string name     = "Urien";
     // FIXME the threshold should probably normalized by nb of pixels
-    double      matchThreshold = 29000.0;
+    double      matchThreshold = 2200.0;
 };
 
 template<size_t Width, size_t Height> 
