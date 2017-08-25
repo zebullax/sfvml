@@ -1,6 +1,34 @@
 #include "sfvml_charactertracker.h"
+#include <fstream>
+#include <sstream>
 
 namespace Sfvml {
+
+void saveTrajectoryToFile(const std::vector<Position>& trajectory,
+                          const std::string& filename)
+{
+    std::ofstream ofs(filename);
+    for(auto&& p : trajectory) {
+        ofs << p.x << ' ' << p.y << std::endl;
+    }
+}
+
+std::vector<Position> getTrajectoryFromFile(const std::string& filename)
+{
+    std::vector<Position> trajectory;
+    std::ifstream ifs(filename);
+    std::string line;
+    double x = .0;
+    double y = .0;
+    
+    while (std::getline(ifs, line)) {
+        std::istringstream iss(line);
+        iss >> x >> y;
+        trajectory.push_back(Position{x, y});
+    }
+    return trajectory; 
+}
+
 
 void addTracker(cv::Mat *frame,
                 const std::vector<Position>& trajectory,
@@ -44,10 +72,10 @@ void interpolatePositionGap(std::vector<Position> *trajectoryP1,
                             size_t currIdx)
 {
 
-    std::cout << "Entering linear interpolation " 
-              << (*trajectoryP1)[prevIdx] 
-              << " -> "
-              << (*trajectoryP1)[currIdx] 
+    std::cout << "Linear interpolation between "
+              << '#' <<prevIdx << ' ' << (*trajectoryP1)[prevIdx] 
+              << "  ->  "
+              << '#' << currIdx << ' ' << (*trajectoryP1)[currIdx] 
               << std::endl;
     // Linear interpolation
     double xDelta = ((*trajectoryP1)[currIdx].x - (*trajectoryP1)[prevIdx].x) 
@@ -61,7 +89,7 @@ void interpolatePositionGap(std::vector<Position> *trajectoryP1,
     }
 }
 
-void interpolatePositionInTrajectory(std::vector<Position> *trajectoryP1,
+void interpolatePositionInTrajectory(std::vector<Position>     *trajectoryP1,
                                      const std::vector<size_t>& validFrames)
 {
     if (validFrames.size() < 2) {
@@ -85,11 +113,41 @@ void interpolatePositionInTrajectory(std::vector<Position> *trajectoryP1,
     } 
 }
 
-bool detectPreRound(const cv::Mat& frame)
+void removeStatisticalUnderliers(const std::vector<double>& distances,
+                                 std::vector<size_t> *validFrames,
+                                 std::vector<size_t> *unmatchedFrames)
 {
-    static cv::Mat preRoundRef(cv::imread(std::string(property::k_referenceCropFolder) + "preRound.png"));
-    cv::Mat timerCrop(frame(cv::Rect(605, 40, 70, 55)));
-    return (norm(preRoundRef, timerCrop) < 1000); 
+    // Mean / StdDev to remove underliers
+    double sum             = .0f;
+    size_t nbFramesChecked = 0;
+    std::cout << distances.size() << std::endl;
+
+    for(size_t i = 0; i < distances.size(); i += property::k_trackStep + 1) {
+        sum += distances[i];
+        ++nbFramesChecked;
+    }
+    
+    double mean  = sum / nbFramesChecked; 
+    double numer = .0;
+    for(size_t i = 0; i < distances.size(); i += property::k_trackStep + 1) {
+        numer += std::pow(distances[i] - mean, 2);
+    }
+    
+    double stdev = std::sqrt(numer / nbFramesChecked);
+   
+    std::cout << "Distance, mean = " << mean << ", stddev = " << stdev << std::endl;
+    for(size_t i = 0; i < distances.size(); ++i) 
+    {
+        if ((i % (property::k_trackStep + 1)) == 0
+            && (distances[i] > mean - 1.5 * stdev && distances[i] < mean + 1.5 * stdev))
+        {
+            validFrames->push_back(i);
+        }
+        else {
+            unmatchedFrames->push_back(i);
+        }
+    }
+
 }
 
 } // sfvml::

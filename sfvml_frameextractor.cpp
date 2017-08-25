@@ -50,7 +50,7 @@ namespace Sfvml   {
         {
             std::ostringstream extractedFrameFilename;
 
-            extractedFrameFilename << property::k_frameOutputFolder
+            extractedFrameFilename << property::k_intermediateFrameOutFolder
                 << d_outFilePrefix
                 << std::setw(10) << std::setfill('0')
                 << d_currentFrame << "_original.jpg";
