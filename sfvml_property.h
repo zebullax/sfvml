@@ -22,7 +22,7 @@ static const char* k_unmatchedFrameOutFolder = "unmatchedFrames/";
 static const double k_greyThreshold = 30.0;
 
 // Used when dev... 
-static const size_t k_sampleOutput = 29 * 4;
+static const size_t k_sampleOutput = 29 * 40;
 
 // Step size used when tracking characters, we dont track 
 // every frame, but every 'trackStep'-th frame and 

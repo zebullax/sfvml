@@ -1,8 +1,13 @@
 #ifndef SFVML_CHARACTERTRAITS
 #define SFVML_CHARACTERTRAITS
 
+// std::
 #include <cstddef>
 #include <string>
+#include <vector>
+// opencv
+#include "opencv2/opencv.hpp"
+
 
 namespace Sfvml {
 
@@ -15,21 +20,23 @@ enum class CharacterName {
 template<CharacterName characterName>
 struct CharacterTrait;
 
-// Spec per character
+// Character descriptor 
 template<>
 struct CharacterTrait<CharacterName::Urien>
 {
-    // TODO change for type Position ?
-    // Top left corner
-    size_t      cropSize = 90;
-    std::string name     = "Urien";
+    // !! crop is assumed to be square (#cols = #rows)
+    std::vector<size_t>  cropSizes; // Will be filled out when loading crops 
+    std::vector<cv::Mat> refCrops;
+    const std::string name = "Urien";
 };
 
 template<>
 struct CharacterTrait<CharacterName::Laura>
 {
-    size_t      cropSize = 90;
-    std::string name     = "Laura";
+    // !! crop is assumed to be square (#cols = #rows)
+    std::vector<size_t>  cropSizes; // Will be filled out when loading crops 
+    std::vector<cv::Mat> refCrops;
+    const std::string name = "Laura";
 };
 
 } // sfvml

@@ -12,6 +12,7 @@
 #include <array>
 #include <vector>
 #include <cmath>
+#include <fstream>
 #include <numeric>
 // opencv
 #include "opencv2/opencv.hpp"
@@ -53,8 +54,12 @@ void removeStatisticalUnderliers(const std::vector<double>& distances,
                                  std::vector<size_t> *validFrames,
                                  std::vector<size_t> *unmatchedFrames);
 
+// Used when matching several reference crops
+// Holds the position for the best match and the min distance value
+using CropMatch = std::pair<Position, double>; 
+Position getBarycentre(const std::vector<CropMatch>& CropMatches);
 
-// Return a shifter crop of the image relative to prevPosition
+// Return a shifted crop of the image relative to prevPosition
 // The return cropped is a row vector
 template <typename Character>
 Position getShiftedCrop(const cv::Mat&    frame,
@@ -112,29 +117,31 @@ Position getShiftedCrop(const cv::Mat&    frame,
 // Return the top left corner of the best position found if the match score
 // is under the threshold set in the character, otherwise 'k_characterNotFound'
 template<typename Character>
-Position scanFullScreen(const cv::Mat&    frame,
-                        const cv::Mat&    refCharacterCrop,
-                        const Character&  character,
+Position scanFullScreen(const cv::Mat& frame,
+                        const Character& character,
+                        size_t cropIdx,
                         const FrameTransformerPipeline& transformer,
-                        double           *minDistance,
-                        double                          offsetScaleDownRatio = 2.0)
+                        double *minDistance,
+                        double offsetScaleDownRatio = 2.0)
 {
     cv::Mat scratchVect;
-    std::cout << "Entering linear scan of the frame" << std::endl;
+    cv::Mat refCharacterCrop = character.refCrops[cropIdx];
+    size_t cropSize          = character.cropSizes[cropIdx]; 
+    std::cout << "Entering linear scan of the frame " << cropSize << std::endl;
     double globalDistance = std::numeric_limits<double>::max();
     Position globalPosition;
     for (size_t x = 0; 
-         x < 1280 - character.cropSize; 
-         x += character.cropSize / offsetScaleDownRatio)
+         x < 1280 - cropSize; 
+         x += cropSize / offsetScaleDownRatio)
     {
         for (size_t y = 0; 
-             y < 720 - character.cropSize; 
-             y += character.cropSize / (offsetScaleDownRatio /* Todo account for crop h/w */))
+             y < 720 - cropSize; 
+             y += cropSize / (offsetScaleDownRatio /* Todo account for crop h/w */))
         {
             frame(cv::Rect(x,
                            y,
-                           character.cropSize,
-                           character.cropSize))
+                           cropSize,
+                           cropSize))
                 .clone()
                 .reshape(0, 1)
                 .copyTo(scratchVect);
@@ -157,11 +164,11 @@ Position scanFullScreen(const cv::Mat&    frame,
 template<typename Character> 
 std::map<Position, double> 
     getFullScreenDistribution(const cv::Mat&                  frame,
-                   const cv::Mat&                  refCharacterCrop,
-                   const Character&                character,
-                   const FrameTransformerPipeline& transformer,
-                   double                         *maxDistance,
-                   double                          offsetScaleDownRatio = 2.0)
+                              const cv::Mat&                  refCharacterCrop,
+                              const Character&                character,
+                              const FrameTransformerPipeline& transformer,
+                              double                         *maxDistance,
+                              double                          offsetScaleDownRatio = 2.0)
 {
     cv::Mat scratchVect;
     std::map<Position, double> distances;
@@ -237,30 +244,44 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     size_t currentlyTrackedFrame = 0;
     size_t prevTrackedFrame      = 0;
     
-    // Load reference crops used to match subsequent crops
-    getReferenceCharVect(&characterP1Vect,
-	                     characterP1,
-                         1);
-    vectTransformer(&characterP1Vect);
+    // Load reference crops used to match subsequent crops and apply transformations
+    getReferenceCharVect(&characterP1, 1);
     
+    for(auto&& crop: characterP1.refCrops) {
+        vectTransformer(&crop);
+    }
+    // Used when matching individual crops, where we keep the position and 
+    // the match distance
+    std::vector<CropMatch> cropPositions(characterP1.cropSizes.size());
+
+    // For all frames we do not skip...
     while (!frameExtractor.isLastFrame() && currentlyTrackedFrame < property::k_sampleOutput)
     {
         frameExtractor >> extractedFrame;
         // current points to one past read, hence - 1 
         currentlyTrackedFrame = frameExtractor.currentFrame() - 1;         
+        // Discard next n-1 frames
         frameExtractor.discardNextNFrames(property::k_trackStep);
         
         std::cout << "\n================== Frame " << currentlyTrackedFrame 
                   << " (from " << prevTrackedFrame << ")" << std::endl;
+        
+        double distanceToBestMatch = std::numeric_limits<double>::max();
 
-        Position nextPosition = (*trajectoryP1)[prevTrackedFrame];
-        double distanceToBestMatch = .0;
-        nextPosition = scanFullScreen(extractedFrame,
-                              characterP1Vect,
-                              characterP1,
-                              vectTransformer,
-                              &distanceToBestMatch); 
-        (*trajectoryP1)[currentlyTrackedFrame] = nextPosition;
+        // For all our reference crops...
+        for(size_t i = 0; i != characterP1.refCrops.size(); ++i)
+        {
+            double cropDistance;
+            Position cropPosition = scanFullScreen(extractedFrame,
+                                                   characterP1,
+                                                   i,
+                                                   vectTransformer,
+                                                   &cropDistance);
+            distanceToBestMatch = std::min(distanceToBestMatch, cropDistance);
+            cropPositions[i] = {cropPosition, cropDistance};
+        }
+
+        (*trajectoryP1)[currentlyTrackedFrame] = getBarycentre(cropPositions);
         distances[currentlyTrackedFrame] = distanceToBestMatch;
         prevTrackedFrame = currentlyTrackedFrame;
     }
@@ -278,24 +299,31 @@ void getCharacterTrajectories(const std::string&     videoFilename,
 
 
 template <typename Character>
-void getReferenceCharVect(cv::Mat         *characterVector,
-                          const Character& character,
-                          size_t           colorIdx)
+void getReferenceCharVect(Character *character,
+                          size_t     colorIdx)
 {
-    std::ostringstream filename;
-    filename << property::k_referenceCropInFolder
-             << character.name << "_"
-             << "c" << colorIdx << "_"
-             << "1" /* this one should loop over various crops */
-             << ".png";
-    std::cout << "Loading reference character '"
-              << character.name
-              << "' from '" 
-              << filename.str() << '\'' << std::endl;
-    
-    cv::imread(filename.str())
-        .reshape(0, 1)
-        .copyTo(*characterVector);
+    for(size_t cropIdx = 0; /* none */; ++cropIdx)
+    {
+        std::ostringstream filename;
+        filename << property::k_referenceCropInFolder
+                 << character->name << "_"
+                 << "c" << colorIdx << "_"
+                 << cropIdx 
+                 << ".png";
+        {
+            std::ifstream ifs(filename.str());
+            if (!ifs) {
+                break;
+            }
+        }
+        std::cout << "Loading reference crop for '"
+                  << character->name
+                  << "' from '" 
+                  << filename.str() << '\'' << std::endl;
+        cv::Mat refCrop = cv::imread(filename.str());
+        character->cropSizes.push_back(refCrop.cols); // Assumed = rows
+        character->refCrops.push_back(refCrop.reshape(0, 1).clone());
+    } 
 }
 
 } // Sfvml::

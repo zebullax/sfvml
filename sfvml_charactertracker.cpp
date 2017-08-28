@@ -139,7 +139,7 @@ void removeStatisticalUnderliers(const std::vector<double>& distances,
     for(size_t i = 0; i < distances.size(); ++i) 
     {
         if ((i % (property::k_trackStep + 1)) == 0
-            && (distances[i] > mean - 1.5 * stdev && distances[i] < mean + 1.5 * stdev))
+            && (distances[i] > mean - 2 * stdev && distances[i] < mean + 2 * stdev))
         {
             validFrames->push_back(i);
         }
@@ -148,6 +148,28 @@ void removeStatisticalUnderliers(const std::vector<double>& distances,
         }
     }
 
+}
+
+Position getBarycentre(const std::vector<CropMatch>& cropMatches)
+{
+    Position wCenter;
+    double eps = .00001; // Dont want to divide by 0...
+    double sumOfDistance = std::accumulate(cropMatches.begin(), 
+                                           cropMatches.end(),
+                                           .0,
+                                           [eps](double sum, const CropMatch& match) { 
+                                               return (sum + (1 / (match.second + eps)));
+                                           });
+
+    for(auto&& cropMatch : cropMatches) 
+    {
+        std::cout << "Adding match " << cropMatch.first << " with weight " 
+                  << ((1 / (cropMatch.second + eps)) / sumOfDistance) << std::endl;
+        wCenter.x += ((1 / (cropMatch.second + eps)) / sumOfDistance) * cropMatch.first.x;
+        wCenter.y += ((1 / (cropMatch.second + eps)) / sumOfDistance) * cropMatch.first.y;
+        std::cout << "Updated weighted center to " << wCenter << std::endl;
+    }
+    return wCenter;
 }
 
 } // sfvml::
