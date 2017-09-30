@@ -2,31 +2,27 @@
 #include "sfvml_type.h"
 #include "sfvml_charactertraits.h"
 #include "sfvml_charactertracker.h"
+#include "sfvml_trajectory.h"
 
 int main(int argc, char ** argv)
 {
     using namespace Sfvml;
     
-    std::string                             videoFilename(argv[1]);
-    std::vector<Position>                   urienTrajectory;
-    std::vector<Position>                   lauraTrajectory;
-    CharacterTrait<CharacterName::Urien>    urien;
-    CharacterTrait<CharacterName::Laura>    laura;
-
-    auto l2norm = [] (const cv::Mat& a, const cv::Mat& b) {
-        return cv::norm(a, b);
-    };
+    std::string                          videoFilename(argv[1]);
+    Trajectory                           urienTrajectory;
+    Trajectory                           lauraTrajectory;
+    CharacterTrait<CharacterName::Urien> urien;
+    CharacterTrait<CharacterName::Laura> laura;
 
     getCharacterTrajectories(videoFilename, 
                              &urienTrajectory, 
                              urien, 
                              &lauraTrajectory, 
-                             laura,
-                             l2norm);
+                             laura);
 
     addTrajectoryToVideo(videoFilename,
                          "test.mp4",
                          urienTrajectory);
 
-    return 0;
+    return EXIT_SUCCESS;
 }

@@ -9,17 +9,24 @@
 namespace Sfvml {
 
 // FIXME should be unsigned 
-struct Position { double x; 
-                  double y; };
+struct Position { 
+    
+    Position(double x_, double y_) : x(x_), y(y_) {}
+   
+    Position() = default;
 
-inline bool operator==(const Position& lhs, const Position& rhs) {
-    // TODO need for epsilon comp ?
-    return (lhs.x == rhs.x && lhs.y == rhs.y);
-}
-
-inline bool operator!=(const Position& lhs, const Position& rhs) {
-    return !(lhs == rhs);
-}
+    bool operator==(const Position& rhs)  const {
+        // TODO need for epsilon comp ?
+        return (x == rhs.x && y == rhs.y);
+    }
+   
+    bool operator!=(const Position& rhs)  const {
+        return !(*this == rhs);
+    }
+ 
+    double x; 
+    double y; 
+};
 
 inline std::ostream& operator<<(std::ostream& os, const Position& pos) {
     os << "x:" << pos.x << ", y:" << pos.y;

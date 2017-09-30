@@ -1,42 +1,17 @@
+// sfvml
 #include "sfvml_charactertracker.h"
+#include "sfvml_property.h"
+// std
 #include <fstream>
 #include <sstream>
 
 namespace Sfvml {
 
-void saveTrajectoryToFile(const std::vector<Position>& trajectory,
-                          const std::string& filename)
+void addTracker(cv::Mat          *frame,
+                const Trajectory& trajectory,
+                size_t            frameIdx)
 {
-    std::ofstream ofs(filename);
-    for(auto&& p : trajectory) {
-        ofs << p.x << ' ' << p.y << std::endl;
-    }
-}
-
-std::vector<Position> getTrajectoryFromFile(const std::string& filename)
-{
-    std::vector<Position> trajectory;
-    std::ifstream ifs(filename);
-    std::string line;
-    double x = .0;
-    double y = .0;
-    
-    while (std::getline(ifs, line)) {
-        std::istringstream iss(line);
-        iss >> x >> y;
-        trajectory.push_back(Position{x, y});
-    }
-    return trajectory; 
-}
-
-
-void addTracker(cv::Mat *frame,
-                const std::vector<Position>& trajectory,
-                size_t frameIdx)
-{
-    bool failedFrame = trajectory[frameIdx] == property::k_characterNotFound;
-   
-    if (!failedFrame)
+    if (trajectory.isGood(frameIdx))
     {
         cv::circle(*frame, 
                    cv::Point(trajectory[frameIdx].x, trajectory[frameIdx].y), 
@@ -49,7 +24,7 @@ void addTracker(cv::Mat *frame,
 
 void addTrajectoryToVideo(const std::string& inVideoFilename,
                           const std::string& outVideoFilename,
-                          const std::vector<Position>& trajectory)
+                          const Trajectory&  trajectory)
 {
     cv::VideoCapture vidRead(inVideoFilename);
     cv::VideoWriter vidWrite(outVideoFilename, 
@@ -67,60 +42,14 @@ void addTrajectoryToVideo(const std::string& inVideoFilename,
     }
 }
 
-void interpolatePositionGap(std::vector<Position> *trajectoryP1,
-                            size_t prevIdx, 
-                            size_t currIdx)
-{
-
-    std::cout << "Linear interpolation between "
-              << '#' <<prevIdx << ' ' << (*trajectoryP1)[prevIdx] 
-              << "  ->  "
-              << '#' << currIdx << ' ' << (*trajectoryP1)[currIdx] 
-              << std::endl;
-    // Linear interpolation
-    double xDelta = ((*trajectoryP1)[currIdx].x - (*trajectoryP1)[prevIdx].x) 
-                    / (currIdx - prevIdx);
-    double yDelta = ((*trajectoryP1)[currIdx].y - (*trajectoryP1)[prevIdx].y) 
-                    / (currIdx - prevIdx);
-    for (size_t i = prevIdx + 1 ; i != currIdx; ++i) 
-    {
-        (*trajectoryP1)[i] = {(*trajectoryP1)[i - 1].x + xDelta, 
-                              (*trajectoryP1)[i - 1].y + yDelta};
-    }
-}
-
-void interpolatePositionInTrajectory(std::vector<Position>     *trajectoryP1,
-                                     const std::vector<size_t>& validFrames)
-{
-    if (validFrames.size() < 2) {
-        return;
-    }
-
-    size_t maxIdx   = validFrames.size();
-    size_t idx      = 0;
-    size_t startIdx = validFrames[idx++];
-    size_t stopIdx  = validFrames[idx];
-
-    while(idx < maxIdx)
-    {
-        interpolatePositionGap(trajectoryP1, 
-                               startIdx,
-                               stopIdx);
-        std::swap(startIdx, stopIdx);
-        if (idx != maxIdx) {
-            stopIdx = validFrames[++idx];
-        }
-    } 
-}
-
 void removeStatisticalUnderliers(const std::vector<double>& distances,
                                  std::vector<size_t> *validFrames,
-                                 std::vector<size_t> *unmatchedFrames)
+                                 std::vector<size_t> *unmatchedFrames,
+                                 double               stddevOffset)
 {
     // Mean / StdDev to remove underliers
     double sum             = .0f;
     size_t nbFramesChecked = 0;
-    std::cout << distances.size() << std::endl;
 
     for(size_t i = 0; i < distances.size(); i += property::k_trackStep + 1) {
         sum += distances[i];
@@ -139,7 +68,7 @@ void removeStatisticalUnderliers(const std::vector<double>& distances,
     for(size_t i = 0; i < distances.size(); ++i) 
     {
         if ((i % (property::k_trackStep + 1)) == 0
-            && (distances[i] > mean - 2 * stdev && distances[i] < mean + 2 * stdev))
+         && (std::abs(distances[i] - mean) < mean + stddevOffset * stdev))
         {
             validFrames->push_back(i);
         }

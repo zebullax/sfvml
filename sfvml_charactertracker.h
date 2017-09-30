@@ -8,6 +8,7 @@
 #include "sfvml_frameextractor.h"
 #include "sfvml_frametransformer.h"
 #include "sfvml_frametransformerpipeline.h"
+#include "sfvml_trajectory.h"
 // std
 #include <array>
 #include <vector>
@@ -19,22 +20,6 @@
 
 namespace Sfvml {
 
-// Linearly interpolate character positions between 2 keyframe
-// trajectoryP1 -> vector holding the positions of the character 
-// prevIdx -> last known position
-// currIdx -> most recently detected position
-void interpolatePositionGap(std::vector<Position> *trajectoryP1,
-                            size_t prevIdx, 
-                            size_t currIdx);
-
-void interpolatePositionInTrajectory(std::vector<Position> *trajectoryP1,
-                                     const std::vector<size_t>& validFrames);
-
-void saveTrajectoryToFile(const std::vector<Position>& trajectory,
-                          const std::string& filename);
-
-std::vector<Position> getTrajectoryFromFile(const std::string& filename);
-
 // Add a small visual clue representing detected position
 void addTracker(cv::Mat *frame,
                 const std::vector<Position>& trajectory,
@@ -43,16 +28,14 @@ void addTracker(cv::Mat *frame,
 // Overlay the detected trajectory on top of the video
 void addTrajectoryToVideo(const std::string& inVideoFilename,
                           const std::string& outVideoFilename,
-                          const std::vector<Position>& trajectory);
+                          const Trajectory&  trajectory);
 
-void addTrajectoryToVideo(const std::string& inVideoFilename,
-                          const std::string& outVideoFilename,
-                          const std::string& trajectoryFilename);
-
-// Mark as valid, points whose distance are no further than 1 stddev from the mean
+// Mark as valid, points whose distance are no further than stddevOffset* stddev 
+// from the mean, invalid the others
 void removeStatisticalUnderliers(const std::vector<double>& distances,
-                                 std::vector<size_t> *validFrames,
-                                 std::vector<size_t> *unmatchedFrames);
+                                 std::vector<size_t>       *validFrames,
+                                 std::vector<size_t>       *unmatchedFrames,
+                                 double                     stddevOffset = 1.5);
 
 // Used when matching several reference crops
 // Holds the position for the best match and the min distance value
@@ -202,15 +185,13 @@ std::map<Position, double>
 
 // That's where the magic happens... 
 template <typename FirstCharacter,
-          typename SecondCharacter,
-          typename Measure>
-void getCharacterTrajectories(const std::string&     videoFilename,
-                              std::vector<Position> *trajectoryP1,
-                              FirstCharacter         characterP1,
-                              std::vector<Position> *trajectoryCharacter2,
-                              SecondCharacter        secondCharacter,
-                              Measure                norm,
-                              bool                   saveUnmatchedFrame = true)
+          typename SecondCharacter>
+void getCharacterTrajectories(const std::string& videoFilename,
+                              Trajectory        *trajectoryP1,
+                              FirstCharacter     characterP1,
+                              Trajectory        *trajectoryCharacter2,
+                              SecondCharacter    secondCharacter,
+                              bool               saveUnmatchedFrame = true)
 {
 	FrameExtractor frameExtractor(videoFilename, true);
     if (!frameExtractor) {
@@ -220,7 +201,7 @@ void getCharacterTrajectories(const std::string&     videoFilename,
    
     FrameTransformerPipeline vectTransformer{removeGreyPixels,
                                              sortFramePixels};
-                                             // removeBlackPixel TODO
+    
     // Holds the x,y at the center of the character
     trajectoryP1->resize(frameExtractor.nbOfFrames());
     // Holds the frames idx with valid match and frames with no matches found
@@ -255,7 +236,8 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     std::vector<CropMatch> cropPositions(characterP1.cropSizes.size());
 
     // For all frames we do not skip...
-    while (!frameExtractor.isLastFrame() && currentlyTrackedFrame < property::k_sampleOutput)
+    while (!frameExtractor.isLastFrame() 
+            && currentlyTrackedFrame < property::k_sampleOutput)
     {
         frameExtractor >> extractedFrame;
         // current points to one past read, hence - 1 
@@ -287,13 +269,12 @@ void getCharacterTrajectories(const std::string&     videoFilename,
     }
     trajectoryP1->resize(property::k_sampleOutput);
     distances.resize(property::k_sampleOutput);
-    
+   
     removeStatisticalUnderliers(distances,
                                 &validFrames,
                                 &unmatchedFrames);
-    interpolatePositionInTrajectory(trajectoryP1,
-                                    validFrames);
-    saveTrajectoryToFile(*trajectoryP1, "testUrienSample.txt");
+    trajectoryP1->interpolatePosition(validFrames);
+    trajectoryP1->saveToFile("testUrienSample.txt");
 
 }
 
