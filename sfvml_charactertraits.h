@@ -24,19 +24,13 @@ struct CharacterTrait;
 template<>
 struct CharacterTrait<CharacterName::Urien>
 {
-    // !! crop is assumed to be square (#cols = #rows)
-    std::vector<size_t>  cropSizes; // Will be filled out when loading crops 
-    std::vector<cv::Mat> refCrops;
-    const std::string name = "Urien";
+    static const std::string name;
 };
 
 template<>
 struct CharacterTrait<CharacterName::Laura>
 {
-    // !! crop is assumed to be square (#cols = #rows)
-    std::vector<size_t>  cropSizes; // Will be filled out when loading crops 
-    std::vector<cv::Mat> refCrops;
-    const std::string name = "Laura";
+    static const std::string name;
 };
 
 } // sfvml

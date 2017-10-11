@@ -69,4 +69,58 @@ void sortFramePixels(cv::Mat *frame)
     cv::cvtColor(hsvFrame, *frame, CV_HSV2BGR); 
 }
 
+// Return a shifted crop of the image relative to prevPosition
+// The return cropped is a row vector
+Position getShiftedCrop(const cv::Mat&    frame,
+                        const Position&   prevPosition,
+                        const Direction&  updateDirection,
+                        size_t            cropSize,
+                        cv::Mat          *croppedROI,
+                        double            offsetScaleDownRatio)
+{
+   
+    // Translate from center of character to top left corner
+    int32_t prevX = prevPosition.x - static_cast<int32_t>(cropSize / 2);
+    int32_t prevY = prevPosition.y - static_cast<int32_t>(cropSize / 2);
+
+    bool goRight = (updateDirection & 1) != 0;
+    bool goLeft  = (updateDirection & 2) != 0;
+    bool goUp    = (updateDirection & 4) != 0;
+    bool goDown  = (updateDirection & 8) != 0;
+
+    size_t offsetH = offsetScaleDownRatio * ((goRight || goLeft) ? cropSize / 2 : 0);
+    size_t offsetV = offsetScaleDownRatio * ((goUp || goDown) ? cropSize / 2 : 0);
+
+    int32_t newX = prevX + (goLeft  ? -offsetH :
+                            goRight ?  offsetH :
+                            0);
+    int32_t newY = prevY + (goDown ?  offsetV :
+                            goUp   ? -offsetV  :
+                            0);
+
+    // clip to min max
+    // FIXME hardcoded video size
+    newX = std::max<int32_t>(newX, 0);
+    newX = std::min<int32_t>(newX, static_cast<int32_t>(1280 - cropSize));
+    newY = std::max<int32_t>(newY, 0);
+    newY = std::min<int32_t>(newY, static_cast<int32_t>(720 - cropSize));
+    
+    std::cout << "getShiftedCrop: " << updateDirection << ": X " << prevX << "->" << newX 
+              << ", Y " << prevY << "->" << newY << '\n';
+
+    // Is it shit ? Yep...
+    // TODO Benchmark against other approach
+    frame(cv::Rect(newX,
+                   newY,
+                   cropSize,
+                   cropSize))
+        .clone()
+        .reshape(0, 1)
+        .copyTo(*croppedROI);        
+
+    return { static_cast<double>(newX + cropSize / 2), 
+             static_cast<double>(newY + cropSize / 2) };
+}
+
+
 } // Sfvml::

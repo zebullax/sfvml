@@ -7,41 +7,6 @@
 
 namespace Sfvml {
 
-void addTracker(cv::Mat          *frame,
-                const Trajectory& trajectory,
-                size_t            frameIdx)
-{
-    if (trajectory.isGood(frameIdx))
-    {
-        cv::circle(*frame, 
-                   cv::Point(trajectory[frameIdx].x, trajectory[frameIdx].y), 
-                   15,
-                   cv::Scalar(255, 0, 0),
-                   -1 /* fill */); 
-    }
-}
-
-
-void addTrajectoryToVideo(const std::string& inVideoFilename,
-                          const std::string& outVideoFilename,
-                          const Trajectory&  trajectory)
-{
-    cv::VideoCapture vidRead(inVideoFilename);
-    cv::VideoWriter vidWrite(outVideoFilename, 
-                             CV_FOURCC('A','V','C','1'), 
-                             29, 
-                             cv::Size(1280, 720));
-    cv::Mat extractedFrame;
-    size_t currIdx = 0;
-
-    while(vidRead.read(extractedFrame) && currIdx < property::k_sampleOutput)
-    {
-        addTracker(&extractedFrame, trajectory, currIdx);
-        vidWrite.write(extractedFrame);
-        ++currIdx;
-    }
-}
-
 void removeStatisticalUnderliers(const std::vector<double>& distances,
                                  std::vector<size_t> *validFrames,
                                  std::vector<size_t> *unmatchedFrames,

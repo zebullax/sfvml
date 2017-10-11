@@ -13,16 +13,15 @@ int main(int argc, char ** argv)
     Trajectory                           lauraTrajectory;
     CharacterTrait<CharacterName::Urien> urien;
     CharacterTrait<CharacterName::Laura> laura;
+    CharacterTracker tracker;
 
-    getCharacterTrajectories(videoFilename, 
-                             &urienTrajectory, 
-                             urien, 
-                             &lauraTrajectory, 
-                             laura);
+    tracker.extractTrajectoryP1FromVideo(videoFilename, 
+                                         urien, 
+                                         &urienTrajectory);
 
-    addTrajectoryToVideo(videoFilename,
-                         "test.mp4",
-                         urienTrajectory);
+    urienTrajectory.saveToFile("test_urienTrajectory.txt");
+    urienTrajectory.overlayTrackerOnVideo(videoFilename,
+                                          "test.mp4");
 
     return EXIT_SUCCESS;
 }

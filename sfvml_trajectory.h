@@ -30,6 +30,10 @@ public:
     bool isGood(size_t frameIdx) const { 
         return d_trajectory[frameIdx] == property::k_characterNotFound; } 
 
+    // Overlay the detected trajectory on top of the video
+    void overlayTrackerOnVideo(const std::string& inVideoFilename,
+                               const std::string& outVideoFilename);
+
     // Forwarded to underlying container
     void push_back(const Position& pos) { d_trajectory.push_back(pos); }
     void resize(size_t newSize) { d_trajectory.resize(newSize); }
@@ -45,6 +49,10 @@ private:
     // currIdx -> most recently detected position
     void interpolatePositionGap(size_t prevIdx, 
                                 size_t currIdx);
+
+    // Add a small visual clue representing detected position
+    void addTracker(cv::Mat         *frame,
+                    const Position&  trajectory);
 
     // DATA
     // Container holding the actual position of the character, depending on the track step

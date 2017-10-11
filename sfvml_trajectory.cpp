@@ -19,7 +19,7 @@ void Trajectory::interpolatePositionGap(size_t prevIdx,
     for (size_t i = prevIdx + 1 ; i != currIdx; ++i) 
     {
         d_trajectory[i] = {d_trajectory[i - 1].x + xDelta, 
-                              d_trajectory[i - 1].y + yDelta};
+                           d_trajectory[i - 1].y + yDelta};
     }
 }
 
@@ -66,6 +66,38 @@ void Trajectory::interpolatePosition(const std::vector<size_t>& keyFrames)
             stopIdx = keyFrames[++idx];
         }
     } 
+}
+
+void Trajectory::addTracker(cv::Mat         *frame,
+                            const Position&  position)
+{
+    cv::circle(*frame, 
+               cv::Point(position.x, position.y), 
+               15,
+               cv::Scalar(255, 0, 0),
+               -1 /* fill */); 
+}
+
+
+void Trajectory::overlayTrackerOnVideo(const std::string& inVideoFilename,
+                                       const std::string& outVideoFilename)
+{
+    cv::VideoCapture vidRead(inVideoFilename);
+    cv::VideoWriter vidWrite(outVideoFilename, 
+                             CV_FOURCC('A','V','C','1'), 
+                             29, 
+                             cv::Size(1280, 720));
+    cv::Mat extractedFrame;
+    size_t currIdx = 0;
+
+    while(vidRead.read(extractedFrame) && currIdx < property::k_sampleOutput)
+    {
+        if (isGood(currIdx)) {
+            addTracker(&extractedFrame, d_trajectory[currIdx]);
+            vidWrite.write(extractedFrame);
+        }
+        ++currIdx;
+    }
 }
 
 
